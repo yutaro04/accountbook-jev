@@ -3,119 +3,287 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>家計簿 × Jev — レシートの費目判定</title>
+<title>家計簿 × Jev — レシート1枚が家計簿1件になるまで</title>
 <style>
   :root {
     --bg: #0d1117;
     --panel: #161b22;
+    --panel2: #1c2128;
     --border: #30363d;
     --text: #e6edf3;
     --muted: #8b949e;
-    --accent: #3fb950;
-    --warn: #d29922;
-    --danger: #f85149;
+    --auto: #3fb950;
+    --confirm: #d29922;
+    --manual: #f85149;
+    --choice: #58a6ff;
+    --score: #bc8cff;
+    --noul: #39c5cf;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
-    padding: 24px;
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    padding: 20px;
   }
-  .wrap { max-width: 1100px; margin: 0 auto; }
-  h1 { font-size: 26px; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: 15px; margin-bottom: 20px; }
-  .cols { display: grid; grid-template-columns: 1fr 1.3fr; gap: 20px; }
-  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  .wrap { max-width: 1420px; margin: 0 auto; }
+
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { font-size: 25px; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 18px; }
+  .badge {
+    font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .badge.mock { border-color: var(--confirm); color: var(--confirm); }
+  .badge.live { border-color: var(--auto); color: var(--auto); }
+
+  .cols { display: grid; grid-template-columns: 380px 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 1100px) { .cols { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  .card > h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 0 0 12px; font-weight: 700;
+  }
 
   textarea {
-    width: 100%; height: 320px; padding: 14px;
-    background: var(--panel); color: var(--text);
-    border: 1px solid var(--border); border-radius: 10px;
-    font: 15px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
-    resize: vertical;
+    width: 100%; height: 300px; padding: 12px;
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 9px;
+    font: 14px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical;
   }
-  button {
-    margin-top: 12px; width: 100%; padding: 14px;
-    background: var(--accent); color: #0d1117;
-    border: 0; border-radius: 10px;
-    font-size: 17px; font-weight: 700; cursor: pointer;
+  .samples { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .samples button {
+    flex: none; padding: 6px 11px; font-size: 13px; font-weight: 600;
+    background: var(--panel2); color: var(--muted);
+    border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
   }
-  button:disabled { opacity: .5; cursor: default; }
+  .samples button.on { color: var(--text); border-color: var(--choice); }
+  #run {
+    margin-top: 10px; width: 100%; padding: 14px;
+    background: var(--auto); color: #06120a; border: 0; border-radius: 10px;
+    font-size: 17px; font-weight: 800; cursor: pointer;
+  }
+  #run:disabled { opacity: .45; cursor: default; }
 
-  .stats { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-  .stat {
+  /* 走行中の合計 */
+  .totals { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
+  @media (max-width: 760px) { .totals { grid-template-columns: repeat(2, 1fr); } }
+  .tot {
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 10px; padding: 10px 14px; flex: 1; min-width: 120px;
+    border-radius: 11px; padding: 10px 13px;
   }
-  .stat .k { color: var(--muted); font-size: 12px; }
-  .stat .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tot .k { color: var(--muted); font-size: 11px; letter-spacing: .04em; }
+  .tot .v { font-size: 25px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .tot .v small { font-size: 13px; font-weight: 600; color: var(--muted); }
 
-  .row {
-    display: grid; grid-template-columns: 1fr 100px 160px 150px;
+  /* ステージ */
+  .stage {
+    display: grid; grid-template-columns: 30px 1fr auto; gap: 12px; align-items: center;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 13px; margin-bottom: 7px;
+    opacity: .38; transition: opacity .25s, border-color .25s;
+  }
+  .stage.active { opacity: 1; border-color: var(--choice); }
+  .stage.done { opacity: 1; }
+  .stage .no {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--panel2); border: 1px solid var(--border);
+    display: grid; place-items: center; font-size: 13px; font-weight: 800;
+  }
+  .stage.done .no { background: var(--auto); color: #06120a; border-color: var(--auto); }
+  .stage.active .no { border-color: var(--choice); color: var(--choice); }
+  .stage .nm { font-size: 16px; font-weight: 700; }
+  .stage .pr { font-size: 12px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+  .stage .mt { text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .stage .mt b { display: block; font-size: 17px; color: var(--text); font-weight: 800; }
+
+  .prim { font-weight: 700; }
+  .prim-choice { color: var(--choice); }
+  .prim-score  { color: var(--score); }
+  .prim-noul   { color: var(--noul); }
+
+  /* 読み取りフィールド */
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 9px; }
+  .fld { background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; border-left-width: 3px; }
+  .fld.auto { border-left-color: var(--auto); }
+  .fld.confirm { border-left-color: var(--confirm); }
+  .fld.manual { border-left-color: var(--manual); }
+  .fld .k { font-size: 11px; color: var(--muted); }
+  .fld .v { font-size: 18px; font-weight: 700; margin: 1px 0; word-break: break-all; }
+  .fld .c { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* 品目テーブル */
+  .item {
+    display: grid; grid-template-columns: 1.5fr 86px 1.5fr 128px 128px;
     gap: 12px; align-items: center;
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 13px; margin-bottom: 6px; border-left-width: 3px;
   }
-  .row.low { border-color: var(--warn); background: #231d10; }
-  .name { font-size: 17px; font-weight: 600; }
-  .amount { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
-  .cat { font-size: 17px; font-weight: 700; }
-  .cat.ask { color: var(--warn); }
+  @media (max-width: 900px) { .item { grid-template-columns: 1fr 80px; } }
+  .item.auto { border-left-color: var(--auto); }
+  .item.confirm { border-left-color: var(--confirm); background: #221c0f; }
+  .item.manual { border-left-color: var(--manual); background: #241619; }
+  .item .nm { font-size: 16px; font-weight: 700; }
+  .item .am { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .item .ct { font-size: 15px; font-weight: 700; }
+  .item .ct small { display: block; font-size: 11px; color: var(--muted); font-weight: 600; }
+  .colhead {
+    display: grid; grid-template-columns: 1.5fr 86px 1.5fr 128px 128px;
+    gap: 12px; padding: 0 13px 6px; font-size: 11px; color: var(--muted); letter-spacing: .04em;
+  }
+  @media (max-width: 900px) { .colhead { display: none; } }
 
-  .bar { background: #21262d; border-radius: 999px; height: 8px; overflow: hidden; }
-  .bar > i { display: block; height: 100%; background: var(--accent); }
-  .row.low .bar > i { background: var(--warn); }
-  .conf { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 3px; }
+  .bar { background: #21262d; border-radius: 999px; height: 7px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--auto); }
+  .bar.confirm > i { background: var(--confirm); }
+  .bar.manual > i { background: var(--manual); }
+  .bar.score > i { background: var(--score); }
+  .meta { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 3px; }
 
-  details { margin-top: 16px; }
-  summary { cursor: pointer; color: var(--muted); }
+  .tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
+  .tag { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid; }
+  .tag.impulse { color: var(--confirm); border-color: var(--confirm); }
+  .tag.repeat  { color: var(--noul); border-color: var(--noul); }
+  .tag.up      { color: var(--manual); border-color: var(--manual); }
+  .tag.down    { color: var(--auto); border-color: var(--auto); }
+
+  /* 評価メーター */
+  .rubrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 11px; }
+  .rub { background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 13px; }
+  .rub .k { font-size: 13px; font-weight: 700; }
+  .rub .v { font-size: 13px; color: var(--muted); margin: 3px 0 6px; min-height: 2.6em; }
+  .rub .n { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+  .gauges { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 11px; margin-top: 11px; }
+  .gau { background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; padding: 11px 13px; }
+  .gau .k { font-size: 13px; font-weight: 700; }
+  .gau .p { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+  .agg { display: flex; flex-direction: column; gap: 5px; }
+  .agg .row { display: grid; grid-template-columns: 120px 1fr 90px; gap: 10px; align-items: center; font-size: 14px; }
+  .agg .row .a { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   pre {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px; overflow: auto; max-height: 340px;
-    font: 12px/1.6 ui-monospace, Menlo, monospace;
+    background: #0b0f14; border: 1px solid var(--border); border-radius: 9px;
+    padding: 12px; overflow: auto; max-height: 420px; margin-top: 8px;
+    font: 12px/1.55 ui-monospace, Menlo, monospace; color: #c9d1d9;
   }
-  .err { color: var(--danger); background: #2d1618; border: 1px solid var(--danger);
+  .err { color: var(--manual); background: #241619; border: 1px solid var(--manual);
          border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-  .hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .hint { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+  .note { color: var(--muted); font-size: 12.5px; }
+  .kv { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+  .tree { font-size: 12.5px; line-height: 1.8; }
+  .tree b { color: var(--text); }
+  .tree span { color: var(--muted); }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>家計簿 × Jev — レシートの費目判定</h1>
-  <div class="sub">OCR 済みのテキストを、品目ごとに費目へ分類します。判定は確信度つきで返ります。</div>
+  <header>
+    <h1>家計簿 × Jev</h1>
+    <span class="badge" id="mode">…</span>
+  </header>
+  <div class="sub">レシート1枚が家計簿1件になるまで。5ステージ・API 5回・question は品目数ぶん。</div>
 
   <div class="cols">
+    <!-- 左: 入力 -->
     <div>
-      <textarea id="input" spellcheck="false"></textarea>
-      <button id="run">Jev で費目を判定する</button>
-      <div class="hint">品目の数だけ question を作り、<b>1回のリクエスト</b>でまとめて評価します。</div>
+      <div class="card">
+        <h2>レシート（OCR 済みテキスト）</h2>
+        <div class="samples" id="samples"></div>
+        <textarea id="input" spellcheck="false"></textarea>
+        <button id="run">Jev に通す</button>
+        <div class="hint">
+          正規表現は候補を<b>多めに</b>拾うだけ。どれが合計でどれが店名かは Choice が選ぶ。
+          候補の外は返ってこないので、値の検証コードが要らない。
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>データ設計（criteria の素）</h2>
+        <div class="tree" id="design">読み込み中…</div>
+        <div class="hint">費目はユーザーが編集できる前提。固定の enum ではなく、実行時に criteria を組み立てている。</div>
+      </div>
+
+      <div class="card" id="candidates-card" hidden>
+        <h2>正規表現が拾った候補</h2>
+        <div id="candidates"></div>
+      </div>
     </div>
 
+    <!-- 右: 結果 -->
     <div>
       <div id="error"></div>
-      <div class="stats" id="stats" hidden>
-        <div class="stat"><div class="k">品目</div><div class="v" id="s-items">–</div></div>
-        <div class="stat"><div class="k">API 呼び出し</div><div class="v" id="s-calls">–</div></div>
-        <div class="stat"><div class="k">応答時間</div><div class="v" id="s-ms">–</div></div>
-        <div class="stat"><div class="k">要確認</div><div class="v" id="s-low">–</div></div>
+
+      <div class="totals">
+        <div class="tot"><div class="k">品目</div><div class="v" id="t-items">–</div></div>
+        <div class="tot"><div class="k">question</div><div class="v" id="t-q">–</div></div>
+        <div class="tot"><div class="k">API 呼び出し</div><div class="v" id="t-calls">–</div></div>
+        <div class="tot"><div class="k">合計時間</div><div class="v" id="t-ms">–</div></div>
+        <div class="tot"><div class="k">入力トークン</div><div class="v" id="t-tok">–</div></div>
       </div>
-      <div id="results"></div>
-      <details id="raw" hidden>
-        <summary>送ったリクエストと返ってきた答えを見る</summary>
-        <pre id="raw-body"></pre>
-      </details>
+
+      <div class="card">
+        <h2>パイプライン</h2>
+        <div id="stages"></div>
+        <details id="raw" hidden>
+          <summary>各ステージの request / answers（実際に飛んだ JSON）</summary>
+          <pre id="raw-body"></pre>
+        </details>
+      </div>
+
+      <div class="card" id="read-card" hidden>
+        <h2>ステージ1 — レシートから読み取った値</h2>
+        <div class="fields" id="fields"></div>
+        <div class="hint" id="verify"></div>
+      </div>
+
+      <div class="card" id="items-card" hidden>
+        <h2>ステージ2–4 — 品目ごとの判定</h2>
+        <div class="colhead">
+          <div>品目</div><div style="text-align:right">金額</div><div>費目（大 &gt; 小）</div>
+          <div>費目の確信度</div><div>必需度</div>
+        </div>
+        <div id="items"></div>
+        <div class="hint">
+          緑＝そのまま確定（確信度 ≧ 0.85）／黄＝ユーザーに確認（0.5–0.85）／赤＝採用しない（&lt; 0.5）。
+          しきい値は「間違えたときの損」で決める。
+        </div>
+      </div>
+
+      <div class="card" id="eval-card" hidden>
+        <h2>ステージ5 — 家計簿としての評価</h2>
+        <div class="rubrics" id="rubrics"></div>
+        <div class="gauges" id="gauges"></div>
+      </div>
+
+      <div class="card" id="agg-card" hidden>
+        <h2>家計簿に入る形</h2>
+        <div class="agg" id="agg"></div>
+        <div class="hint" id="agg-note"></div>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
-// 確信度がこれ未満なら「ユーザーに聞く」に回す
-const ASK_THRESHOLD = 0.70;
+// 確信度のしきい値。docs 推奨の3段階。
+const AUTO = 0.85, CONFIRM = 0.50;
 
-const SAMPLE = `スーパーマルエツ 丸の内店
+const SAMPLES = {
+  "スーパー": `スーパーマルエツ 丸の内店
 東京都千代田区丸の内1-9-1
+TEL 03-1234-5678
+2026年10月11日(日) 19:42
 
 食パン 6枚切      198
 牛乳 1L           258
@@ -128,95 +296,354 @@ const SAMPLE = `スーパーマルエツ 丸の内店
 
 小計             2038
 消費税             163
-合計             2201`;
+合計             2201
+お預り           3000
+お釣り            799`,
 
-const input = document.getElementById("input");
-const runButton = document.getElementById("run");
-const results = document.getElementById("results");
-const errorBox = document.getElementById("error");
-const stats = document.getElementById("stats");
-const raw = document.getElementById("raw");
+  "ドラッグストア": `ウェルネス薬局 神保町店
+東京都千代田区神田神保町2-3
+2026/10/09 11:05
 
-input.value = SAMPLE;
+アレルギー用鼻炎薬   1280
+絆創膏 Mサイズ        248
+牛乳 1000ml          218
+シャンプー 詰替       698
+マスク 30枚          498
+チョコレート          158
 
-runButton.addEventListener("click", async () => {
-  runButton.disabled = true;
-  runButton.textContent = "判定中…";
-  errorBox.innerHTML = "";
-  results.innerHTML = "";
-  stats.hidden = true;
-  raw.hidden = true;
+小計              3100
+消費税              276
+合計              3376
+クレジットカード    3376`,
+
+  "カフェ": `ブルーリーフ珈琲 丸の内店
+2026-10-12 08:31
+
+カフェラテ Tall       520
+バタークロワッサン      380
+ドリップ豆 200g      1480
+
+小計              2380
+消費税              210
+合計              2590
+PayPay            2590`,
+
+  "家電量販店": `ヤマノ電機 秋葉原本店
+東京都千代田区外神田1-15-9
+2026.10.03 15:20
+
+ワイヤレスイヤホン  14800
+HDMIケーブル 2m      1480
+乾電池 単4 8本        698
+USB-C 充電器 65W     3980
+
+小計             20958
+消費税            2096
+合計             23054
+クレジットカード  23054
+ポイント還元       230`,
+};
+
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const bandOf = (c) => (c >= AUTO ? "auto" : c >= CONFIRM ? "confirm" : "manual");
+const pct = (v) => Math.round((v ?? 0) * 100);
+
+const STAGE_PLAN = [
+  { no: 1, name: "レシートを読む", primitive: "Choice x4 + Noul x3" },
+  { no: 2, name: "費目を決める（大分類）", primitive: "Choice x N" },
+  { no: 3, name: "費目を決める（小分類）", primitive: "Choice x N'" },
+  { no: 4, name: "品目の性質を見る", primitive: "Score x N + Noul x 2N" },
+  { no: 5, name: "家計簿として評価する", primitive: "Score x3 + Noul x2" },
+];
+
+// primitive 名に色をつけて、どの型を使ったか一目で分かるようにする
+function colorPrimitive(text) {
+  return esc(text)
+    .replace(/Choice/g, '<span class="prim prim-choice">Choice</span>')
+    .replace(/Score/g,  '<span class="prim prim-score">Score</span>')
+    .replace(/Noul/g,   '<span class="prim prim-noul">Noul</span>');
+}
+
+function resetStages() {
+  $("stages").innerHTML = STAGE_PLAN.map((s) => `
+    <div class="stage" id="stage-${s.no}">
+      <div class="no">${s.no}</div>
+      <div>
+        <div class="nm">${esc(s.name)}</div>
+        <div class="pr">${colorPrimitive(s.primitive)}</div>
+      </div>
+      <div class="mt"><b>–</b>待機</div>
+    </div>`).join("");
+}
+
+// ---- 設計の表示 ----
+fetch("/api/design").then((r) => r.json()).then((design) => {
+  $("mode").textContent = design.mock ? "MOCK（API を呼びません）" : "LIVE（Jev API）";
+  $("mode").className = "badge " + (design.mock ? "mock" : "live");
+  $("design").innerHTML = Object.entries(design.費目).map(([major, minors]) =>
+    `<div><b>${esc(major)}</b> <span>${minors.length ? "› " + minors.map(esc).join(" / ") : "（小分類なし）"}</span></div>`
+  ).join("") +
+  `<div class="hint" style="margin-top:8px">
+     大分類 ${Object.keys(design.費目).length} / 小分類 ${Object.values(design.費目).flat().length}
+     ・店ジャンル ${design.店ジャンル.length} ・必需度 ${design.必需度の段階.length}段階
+   </div>`;
+});
+
+// ---- サンプル ----
+$("samples").innerHTML = Object.keys(SAMPLES)
+  .map((k, i) => `<button data-k="${esc(k)}" class="${i === 0 ? "on" : ""}">${esc(k)}</button>`).join("");
+$("samples").addEventListener("click", (e) => {
+  const button = e.target.closest("button");
+  if (!button) return;
+  [...$("samples").children].forEach((b) => b.classList.toggle("on", b === button));
+  $("input").value = SAMPLES[button.dataset.k];
+});
+$("input").value = SAMPLES["スーパー"];
+resetStages();
+
+// ---- 実行 ----
+const rawByStage = {};
+
+$("run").addEventListener("click", async () => {
+  $("run").disabled = true;
+  $("run").textContent = "判定中…";
+  $("error").innerHTML = "";
+  ["read-card", "items-card", "eval-card", "agg-card", "candidates-card", "raw"].forEach((id) => ($(id).hidden = true));
+  ["t-items", "t-q", "t-calls", "t-ms", "t-tok"].forEach((id) => ($(id).textContent = "–"));
+  resetStages();
+  for (const key of Object.keys(rawByStage)) delete rawByStage[key];
+
+  const running = { questions: 0, calls: 0, ms: 0, tokens: 0 };
+  markActive(1);
 
   try {
-    const response = await fetch("/api/classify", {
+    const response = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: input.value }),
+      body: JSON.stringify({ text: $("input").value }),
     });
-    const data = await response.json();
-    if (data.error) throw new Error(data.error);
-    render(data);
+    if (!response.ok) throw new Error(`サーバーが ${response.status} を返しました`);
+
+    // NDJSON を1行ずつ読む。ステージが終わるたびに画面が埋まる。
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (line.trim()) handle(JSON.parse(line), running);
+      }
+    }
   } catch (error) {
-    errorBox.innerHTML = `<div class="err">${escapeHtml(error.message)}</div>`;
+    $("error").innerHTML = `<div class="err">${esc(error.message)}</div>`;
   } finally {
-    runButton.disabled = false;
-    runButton.textContent = "Jev で費目を判定する";
+    $("run").disabled = false;
+    $("run").textContent = "Jev に通す";
   }
 });
 
-function render(data) {
-  const items = data.results ?? [];
-  if (items.length === 0) {
-    results.innerHTML = `<div class="hint">${escapeHtml(data.note ?? "品目がありません")}</div>`;
+function markActive(no) {
+  const element = $(`stage-${no}`);
+  if (element) { element.classList.add("active"); element.querySelector(".mt").innerHTML = "<b>…</b>実行中"; }
+}
+
+function handle(event, running) {
+  if (event.type === "error") {
+    $("error").innerHTML = `<div class="err">${esc(event.message)}</div>`;
     return;
   }
 
-  const lowCount = items.filter((item) => item.confidence < ASK_THRESHOLD).length;
-  document.getElementById("s-items").textContent = items.length;
-  document.getElementById("s-calls").textContent = "1";
-  document.getElementById("s-ms").textContent = `${data.elapsedMs} ms`;
-  document.getElementById("s-low").textContent = lowCount;
-  stats.hidden = false;
+  if (event.type === "parsed") {
+    $("t-items").textContent = event.items.length;
+    $("candidates-card").hidden = false;
+    $("candidates").innerHTML = Object.entries(event.candidates).map(([name, values]) => `
+      <div style="margin-bottom:9px">
+        <div class="kv">${esc(name)} 候補 ${values.length} 件</div>
+        <div class="chips">${values.map((v) => `<span class="chip">${esc(v)}</span>`).join("") || '<span class="chip">なし</span>'}</div>
+      </div>`).join("");
+    return;
+  }
 
-  results.innerHTML = items.map((item) => {
-    const low = item.confidence < ASK_THRESHOLD;
-    const percent = Math.round(item.confidence * 100);
+  if (event.type === "stage") {
+    running.questions += event.questionCount;
+    running.calls += 1;
+    running.ms += event.elapsedMs;
+    running.tokens += event.usage?.input_tokens ?? 0;
+    $("t-q").textContent = running.questions;
+    $("t-calls").textContent = running.calls;
+    $("t-ms").innerHTML = `${running.ms}<small> ms</small>`;
+    $("t-tok").textContent = running.tokens.toLocaleString();
+
+    const element = $(`stage-${event.index}`);
+    element.classList.remove("active");
+    element.classList.add("done");
+    element.querySelector(".pr").innerHTML = colorPrimitive(event.primitive);
+    element.querySelector(".mt").innerHTML =
+      `<b>${event.elapsedMs} ms</b>question ${event.questionCount} ／ API 1回`;
+    markActive(event.index + 1);
+
+    rawByStage[`${event.index}. ${event.name}`] = {
+      送ったリクエスト: event.request,
+      返ってきた答え: event.answers,
+      コードが組み立てた結果: event.derived,
+      usage: event.usage,
+      model: event.model,
+    };
+    $("raw").hidden = false;
+    $("raw-body").textContent = JSON.stringify(rawByStage, null, 2);
+
+    if (event.index === 1) renderRead(event.derived);
+    return;
+  }
+
+  if (event.type === "done") {
+    // 未実行のステージ（小分類を全部スキップした等）の表示を片づける
+    document.querySelectorAll(".stage.active").forEach((element) => {
+      element.classList.remove("active");
+      element.querySelector(".mt").innerHTML = "<b>–</b>呼ばず";
+    });
+    if (!event.summary) {
+      $("error").innerHTML = `<div class="err">${esc(event.note ?? "結果がありません")}</div>`;
+      return;
+    }
+    renderItems(event.summary.items);
+    renderEval(event.summary);
+    renderAggregate(event.summary);
+  }
+}
+
+// ---- ステージ1 ----
+function renderRead(derived) {
+  const r = derived.読み取り;
+  const b = derived.判定;
+  const fields = [
+    ["店名", r.店名 ?? "不明", b.店名],
+    ["業態", r.ジャンル ?? "–", b.店ジャンル],
+    ["購入日", r.購入日 ?? "不明", b.購入日],
+    ["合計", r.合計 != null ? `¥${r.合計.toLocaleString()}` : "不明", b.合計金額],
+    ["支払い", r.支払い方法 ?? "–", b.支払い方法],
+    ["レシートである", `${pct(r.レシートらしさ)}%`, b.レシートである],
+    ["値引きあり", r.値引きあり ? "あり" : "なし", b.値引きがある],
+    ["経費にできそう", `${pct(r.経費らしさ)}%`, b.経費にできそう],
+  ];
+  $("fields").innerHTML = fields.map(([k, v, meta]) => `
+    <div class="fld ${meta?.band ?? "auto"}">
+      <div class="k">${esc(k)}</div>
+      <div class="v">${esc(v)}</div>
+      <div class="c">確信度 ${pct(meta?.confidence)}%</div>
+    </div>`).join("");
+
+  const verify = derived.検算;
+  $("verify").innerHTML =
+    `検算（コードの仕事）: 品目の積み上げ ¥${verify.品目の合計.toLocaleString()} ／ ` +
+    `Jev が選んだ合計 ${verify.選ばれた合計 != null ? "¥" + verify.選ばれた合計.toLocaleString() : "—"} → <b>${esc(verify.判定)}</b>`;
+  $("read-card").hidden = false;
+}
+
+// ---- ステージ2–4 ----
+function renderItems(items) {
+  const maxNeed = 3;
+  $("items").innerHTML = items.map((item) => {
+    const major = item.大分類の確信度 ?? 0;
+    const minor = item.小分類の確信度 ?? 1;
+    const worst = Math.min(major, minor);
+    const state = bandOf(worst);
+    const need = item.必需度 ?? 0;
+
+    const tags = [];
+    if (item.衝動買い) tags.push(`<span class="tag impulse">衝動買い ${pct(item.衝動買い確率)}%</span>`);
+    if (item.定期購入) tags.push(`<span class="tag repeat">定期購入 ${item.定期購入.回数}回目</span>`);
+    if (item.定期購入 && item.価格差 > 0) tags.push(`<span class="tag up">前回比 +${item.価格差}円</span>`);
+    if (item.定期購入 && item.価格差 < 0) tags.push(`<span class="tag down">前回比 ${item.価格差}円</span>`);
+
+    const ask = state !== "auto" && item.対抗
+      ? `<small>対抗: ${esc(item.対抗.費目)} ${pct(item.対抗.確率)}%</small>` : "";
+
     return `
-      <div class="row ${low ? "low" : ""}">
-        <div class="name">${escapeHtml(item.name)}</div>
-        <div class="amount">¥${item.amount.toLocaleString()}</div>
-        <div class="cat ${low ? "ask" : ""}">
-          ${low ? "？ 確認が必要" : escapeHtml(item.category ?? "–")}
+      <div class="item ${state}">
+        <div>
+          <div class="nm">${esc(item.name)}</div>
+          <div class="tags">${tags.join("")}</div>
+        </div>
+        <div class="am">¥${item.amount.toLocaleString()}</div>
+        <div class="ct">
+          ${state === "manual" ? "？ 手入力に回す" : esc(item.大分類 ?? "–")}
+          <small>${esc(item.小分類 ?? "—")}</small>
+          ${ask}
         </div>
         <div>
-          <div class="bar"><i style="width:${percent}%"></i></div>
-          <div class="conf">確信度 ${percent}%${low ? `（候補: ${escapeHtml(item.category ?? "")}）` : ""}</div>
+          <div class="bar ${state}"><i style="width:${pct(worst)}%"></i></div>
+          <div class="meta">大 ${pct(major)}% ／ 小 ${pct(minor)}%</div>
+        </div>
+        <div>
+          <div class="bar score"><i style="width:${(need / maxNeed) * 100}%"></i></div>
+          <div class="meta">${need.toFixed(2)} / ${maxNeed}（確信度 ${pct(item.必需度の確信度)}%）</div>
         </div>
       </div>`;
   }).join("");
-
-  document.getElementById("raw-body").textContent = JSON.stringify(
-    {
-      送ったリクエスト: { model: "jev-latest", questions: data.questions },
-      返ってきた答え: items.map((item) => ({
-        品目: item.name,
-        選ばれた費目: item.category,
-        確信度: item.confidence,
-        各費目の確率: item.probabilities,
-      })),
-      使用トークン: data.usage,
-      モデル: data.model,
-    },
-    null,
-    2
-  );
-  raw.hidden = false;
+  $("items-card").hidden = false;
 }
 
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
-  );
+// ---- ステージ5 ----
+function renderEval(summary) {
+  $("rubrics").innerHTML = Object.entries(summary.評価).map(([name, value]) => {
+    const max = Math.max(1, (value.段階数 || 5) - 1);
+    return `
+      <div class="rub">
+        <div class="k">${esc(name)}</div>
+        <div class="n">${(value.score ?? 0).toFixed(2)} <span style="font-size:13px;color:var(--muted)">/ ${max}</span></div>
+        <div class="v">${esc(value.説明 ?? "")}</div>
+        <div class="bar score"><i style="width:${((value.score ?? 0) / max) * 100}%"></i></div>
+        <div class="meta">確信度 ${pct(value.confidence)}%</div>
+      </div>`;
+  }).join("");
+
+  const necessity = summary.必需度の金額加重;
+  $("gauges").innerHTML = `
+    <div class="gau">
+      <div class="k">人の確認が要る</div>
+      <div class="p" style="color:${summary.人の確認が要る > .5 ? "var(--confirm)" : "var(--auto)"}">${pct(summary.人の確認が要る)}%</div>
+      <div class="meta">Noul。0.5 をまたぐかで登録フローを分ける</div>
+    </div>
+    <div class="gau">
+      <div class="k">予算が危ない</div>
+      <div class="p" style="color:${summary.予算が危ない > .5 ? "var(--manual)" : "var(--auto)"}">${pct(summary.予算が危ない)}%</div>
+      <div class="meta">予算 ¥${summary.今月の家計.予算.toLocaleString()} ／ 支出 ¥${summary.今月の家計.今月の支出.toLocaleString()} ／ 残り${summary.今月の家計.残り日数}日</div>
+    </div>
+    <div class="gau">
+      <div class="k">必需度（金額加重）</div>
+      <div class="p">${pct(necessity)}%</div>
+      <div class="meta">Score を正規化して金額で重み付け。重みはコードが持つ</div>
+    </div>
+    <div class="gau">
+      <div class="k">衝動買いの金額</div>
+      <div class="p" style="color:${summary.衝動買い金額 > 0 ? "var(--confirm)" : "var(--auto)"}">¥${summary.衝動買い金額.toLocaleString()}</div>
+      <div class="meta">Noul &gt; 0.7 の品目の合計</div>
+    </div>`;
+  $("eval-card").hidden = false;
+}
+
+// ---- 集計 ----
+function renderAggregate(summary) {
+  const total = summary.費目別.reduce((sum, row) => sum + row.金額, 0);
+  $("agg").innerHTML = summary.費目別.map((row) => `
+    <div class="row">
+      <div>${esc(row.費目)}</div>
+      <div class="bar"><i style="width:${(row.金額 / total) * 100}%"></i></div>
+      <div class="a">¥${row.金額.toLocaleString()}</div>
+    </div>`).join("");
+  $("agg-note").innerHTML =
+    `品目 ${summary.items.length} 件 ／ 要確認 <b>${summary.要確認}</b> 件 ／ ` +
+    `定期購入 ${summary.定期購入} 件（うち値上がり ${summary.値上がり} 件）。` +
+    `要確認の件だけユーザーに聞けばよい。`;
+  $("agg-card").hidden = false;
 }
 </script>
 </body>
