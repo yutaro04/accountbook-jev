@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>家計簿 × Jev — レシートの費目判定</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #3fb950;
+    --warn: #d29922;
+    --danger: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+    padding: 24px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 15px; margin-bottom: 20px; }
+  .cols { display: grid; grid-template-columns: 1fr 1.3fr; gap: 20px; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+
+  textarea {
+    width: 100%; height: 320px; padding: 14px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    font: 15px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+    resize: vertical;
+  }
+  button {
+    margin-top: 12px; width: 100%; padding: 14px;
+    background: var(--accent); color: #0d1117;
+    border: 0; border-radius: 10px;
+    font-size: 17px; font-weight: 700; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+
+  .stats { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; flex: 1; min-width: 120px;
+  }
+  .stat .k { color: var(--muted); font-size: 12px; }
+  .stat .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .row {
+    display: grid; grid-template-columns: 1fr 100px 160px 150px;
+    gap: 12px; align-items: center;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
+  }
+  .row.low { border-color: var(--warn); background: #231d10; }
+  .name { font-size: 17px; font-weight: 600; }
+  .amount { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .cat { font-size: 17px; font-weight: 700; }
+  .cat.ask { color: var(--warn); }
+
+  .bar { background: #21262d; border-radius: 999px; height: 8px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .row.low .bar > i { background: var(--warn); }
+  .conf { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 3px; }
+
+  details { margin-top: 16px; }
+  summary { cursor: pointer; color: var(--muted); }
+  pre {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px; overflow: auto; max-height: 340px;
+    font: 12px/1.6 ui-monospace, Menlo, monospace;
+  }
+  .err { color: var(--danger); background: #2d1618; border: 1px solid var(--danger);
+         border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>家計簿 × Jev — レシートの費目判定</h1>
+  <div class="sub">OCR 済みのテキストを、品目ごとに費目へ分類します。判定は確信度つきで返ります。</div>
+
+  <div class="cols">
+    <div>
+      <textarea id="input" spellcheck="false"></textarea>
+      <button id="run">Jev で費目を判定する</button>
+      <div class="hint">品目の数だけ question を作り、<b>1回のリクエスト</b>でまとめて評価します。</div>
+    </div>
+
+    <div>
+      <div id="error"></div>
+      <div class="stats" id="stats" hidden>
+        <div class="stat"><div class="k">品目</div><div class="v" id="s-items">–</div></div>
+        <div class="stat"><div class="k">API 呼び出し</div><div class="v" id="s-calls">–</div></div>
+        <div class="stat"><div class="k">応答時間</div><div class="v" id="s-ms">–</div></div>
+        <div class="stat"><div class="k">要確認</div><div class="v" id="s-low">–</div></div>
+      </div>
+      <div id="results"></div>
+      <details id="raw" hidden>
+        <summary>送ったリクエストと返ってきた答えを見る</summary>
+        <pre id="raw-body"></pre>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script>
+// 確信度がこれ未満なら「ユーザーに聞く」に回す
+const ASK_THRESHOLD = 0.70;
+
+const SAMPLE = `スーパーマルエツ 丸の内店
+東京都千代田区丸の内1-9-1
+
+食パン 6枚切      198
+牛乳 1L           258
+トイレットペーパー  398
+歯ブラシ           298
+コーヒー豆         132
+のむヨーグルト      128
+電池 単3 4本       448
+カップ麺           178
+
+小計             2038
+消費税             163
+合計             2201`;
+
+const input = document.getElementById("input");
+const runButton = document.getElementById("run");
+const results = document.getElementById("results");
+const errorBox = document.getElementById("error");
+const stats = document.getElementById("stats");
+const raw = document.getElementById("raw");
+
+input.value = SAMPLE;
+
+runButton.addEventListener("click", async () => {
+  runButton.disabled = true;
+  runButton.textContent = "判定中…";
+  errorBox.innerHTML = "";
+  results.innerHTML = "";
+  stats.hidden = true;
+  raw.hidden = true;
+
+  try {
+    const response = await fetch("/api/classify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: input.value }),
+    });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+    render(data);
+  } catch (error) {
+    errorBox.innerHTML = `<div class="err">${escapeHtml(error.message)}</div>`;
+  } finally {
+    runButton.disabled = false;
+    runButton.textContent = "Jev で費目を判定する";
+  }
+});
+
+function render(data) {
+  const items = data.results ?? [];
+  if (items.length === 0) {
+    results.innerHTML = `<div class="hint">${escapeHtml(data.note ?? "品目がありません")}</div>`;
+    return;
+  }
+
+  const lowCount = items.filter((item) => item.confidence < ASK_THRESHOLD).length;
+  document.getElementById("s-items").textContent = items.length;
+  document.getElementById("s-calls").textContent = "1";
+  document.getElementById("s-ms").textContent = `${data.elapsedMs} ms`;
+  document.getElementById("s-low").textContent = lowCount;
+  stats.hidden = false;
+
+  results.innerHTML = items.map((item) => {
+    const low = item.confidence < ASK_THRESHOLD;
+    const percent = Math.round(item.confidence * 100);
+    return `
+      <div class="row ${low ? "low" : ""}">
+        <div class="name">${escapeHtml(item.name)}</div>
+        <div class="amount">¥${item.amount.toLocaleString()}</div>
+        <div class="cat ${low ? "ask" : ""}">
+          ${low ? "？ 確認が必要" : escapeHtml(item.category ?? "–")}
+        </div>
+        <div>
+          <div class="bar"><i style="width:${percent}%"></i></div>
+          <div class="conf">確信度 ${percent}%${low ? `（候補: ${escapeHtml(item.category ?? "")}）` : ""}</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  document.getElementById("raw-body").textContent = JSON.stringify(
+    {
+      送ったリクエスト: { model: "jev-latest", questions: data.questions },
+      返ってきた答え: items.map((item) => ({
+        品目: item.name,
+        選ばれた費目: item.category,
+        確信度: item.confidence,
+        各費目の確率: item.probabilities,
+      })),
+      使用トークン: data.usage,
+      モデル: data.model,
+    },
+    null,
+    2
+  );
+  raw.hidden = false;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
+</script>
+</body>
+</html>

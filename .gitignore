@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# 環境変数（API キーを絶対にコミットしない）
+.env
+.env.local
+*.key
+
+# Node
+node_modules/
+npm-debug.log*
