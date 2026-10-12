@@ -188,6 +188,22 @@
   }
   .err { color: var(--manual); background: #241619; border: 1px solid var(--manual);
          border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+
+  /* 検算の結果。合わないときは目立たせて止める */
+  .check { border-radius: 10px; padding: 11px 14px; margin-top: 12px; border: 1px solid; font-size: 14px; }
+  .check .t { font-weight: 800; font-size: 15px; }
+  .check .n { font-family: ui-monospace, Menlo, monospace; font-size: 13px; margin-top: 4px; }
+  .check.ok { border-color: var(--auto); background: #0f2016; color: var(--text); }
+  .check.ok .t { color: var(--auto); }
+  .check.error { border-color: var(--manual); background: #241619; color: var(--text); }
+  .check.error .t { color: var(--manual); }
+  .check.unknown { border-color: var(--confirm); background: #221c0f; color: var(--text); }
+  .check.unknown .t { color: var(--confirm); }
+
+  .sorted-row { display: grid; grid-template-columns: 1fr 150px 70px; gap: 10px;
+    padding: 5px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
+  .sorted-row .r { color: var(--muted); }
+  .sorted-row .c { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
   .hint { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
   .note { color: var(--muted); font-size: 12.5px; }
   .kv { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); }
@@ -262,7 +278,11 @@
       <div class="card" id="read-card" hidden>
         <h2>ステージ1 — レシートから読み取った値</h2>
         <div class="fields" id="fields"></div>
-        <div class="hint" id="verify"></div>
+        <div id="verify"></div>
+        <details id="sorted" hidden>
+          <summary>品物ではないと判定された行</summary>
+          <div id="sorted-body"></div>
+        </details>
       </div>
 
       <div class="card" id="items-card" hidden>
@@ -370,7 +390,7 @@ const bandOf = (c) => (c >= AUTO ? "auto" : c >= CONFIRM ? "confirm" : "manual")
 const pct = (v) => Math.round((v ?? 0) * 100);
 
 const STAGE_PLAN = [
-  { no: 1, name: "レシートを読む", primitive: "Choice x4 + Noul x3" },
+  { no: 1, name: "レシートを読む／行を仕分ける", primitive: "Choice x(行数+5) + Noul x3" },
   { no: 2, name: "費目を決める（大分類）", primitive: "Choice x N" },
   { no: 3, name: "費目を決める（小分類）", primitive: "Choice x N'" },
   { no: 4, name: "品目の性質を見る", primitive: "Score x N + Noul x 2N" },
@@ -523,7 +543,9 @@ function handle(event, running) {
   }
 
   if (event.type === "parsed") {
-    $("t-items").textContent = event.items.length;
+    // この時点ではまだ「金額のある行」でしかない。
+    // どれが品物かは、ステージ1で Jev が仕分けてから決まる。
+    $("t-items").innerHTML = `${event.lines.length}<small> 行</small>`;
     $("candidates-card").hidden = false;
     $("candidates").innerHTML = Object.entries(event.candidates).map(([name, values]) => `
       <div style="margin-bottom:9px">
@@ -561,7 +583,10 @@ function handle(event, running) {
     $("raw").hidden = false;
     $("raw-body").textContent = JSON.stringify(rawByStage, null, 2);
 
-    if (event.index === 1) renderRead(event.derived);
+    if (event.index === 1) {
+      renderRead(event.derived);
+      $("t-items").textContent = event.derived.行の仕分け.品物;
+    }
     return;
   }
 
@@ -602,11 +627,38 @@ function renderRead(derived) {
       <div class="c">確信度 ${pct(meta?.confidence)}%</div>
     </div>`).join("");
 
-  const verify = derived.検算;
-  $("verify").innerHTML =
-    `検算（コードの仕事）: 品目の積み上げ ¥${verify.品目の合計.toLocaleString()} ／ ` +
-    `Jev が選んだ合計 ${verify.選ばれた合計 != null ? "¥" + verify.選ばれた合計.toLocaleString() : "—"} → <b>${esc(verify.判定)}</b>`;
+  renderCheck(derived.検算);
+
+  const rejected = derived.行の仕分け?.内訳 ?? [];
+  $("sorted").hidden = rejected.length === 0;
+  $("sorted-body").innerHTML = rejected.map((row) => `
+    <div class="sorted-row">
+      <div>${esc(row.行)}</div>
+      <div class="r">${esc(row.役割)}</div>
+      <div class="c">${pct(row.確信度)}%</div>
+    </div>`).join("");
+
   $("read-card").hidden = false;
+}
+
+// 検算（コードの仕事）。合わないときは「登録してはいけない」とはっきり出す。
+function renderCheck(check) {
+  const headline = {
+    ok: "検算 OK",
+    error: "検算が合いません",
+    unknown: "検算できません",
+  }[check.status];
+  const numbers = check.選ばれた合計 == null ? "" :
+    `<div class="n">品物の積み上げ ¥${check.品物の積み上げ.toLocaleString()}` +
+    ` ／ レシートの合計 ¥${check.選ばれた合計.toLocaleString()}` +
+    ` ／ 差 ${check.差 > 0 ? "+" : ""}${check.差.toLocaleString()}円</div>`;
+  const warn = check.status === "error"
+    ? '<div class="n">このまま家計簿に登録してはいけない。行の仕分けを見直すこと。</div>' : "";
+  $("verify").innerHTML =
+    `<div class="check ${check.status}">
+       <div class="t">${headline}</div>
+       <div>${esc(check.判定)}</div>${numbers}${warn}
+     </div>`;
 }
 
 // ---- ステージ2–4 ----

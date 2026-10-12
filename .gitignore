@@ -12,3 +12,9 @@ npm-debug.log*
 
 # Swift でビルドする OCR バイナリ
 ocr
+
+# 実物のレシート画像（購入履歴・決済番号が写っているので公開しない）
+IMG_*.jpeg
+IMG_*.jpg
+IMG_*.png
+*.receipt.jpeg

@@ -21,9 +21,10 @@ import {
   STORE_GENRES,
   PAYMENT_METHODS,
   PURCHASE_HISTORY,
+  LINE_ROLES,
 } from "./taxonomy.mjs";
 import {
-  parseItems,
+  candidateLines,
   amountCandidates,
   dateCandidates,
   storeNameCandidates,
@@ -49,6 +50,21 @@ const GENRE_KEYWORDS = [
   [/スーパー|マルエツ|マート|ストア/, "スーパー"],
 ];
 
+/**
+ * モックが行を仕分けるためのキーワード表。**モック専用**。
+ *
+ * これは本番のコードから消した除外語リストそのもの。
+ * `レジ袋` を `レジ` で弾くような事故を起こすので本番では使えないが、
+ * ネットが無いときに画面を最後まで見せるぶんには足りる。
+ * 本物は state（レシート全文）と行の中身を見て判断するので、この表は使わない。
+ */
+const LINE_ROLE_HINTS = [
+  [/伝票|登録番号|電話|番号|レジ\s*[#＃]/, "番号や識別子"],
+  [/消費税|内税|外税|税額/, "税"],
+  [/小計|合計|総額|お会計/, "小計や合計"],
+  [/お預り|お預かり|お釣り|おつり|現金|クレジット|カード|電子マネー|交通系|支払|払い|ポイント|QUICPay|PayPay|Suica|iD|nanaco|WAON|^\s*金額/, "支払いや釣り銭"],
+];
+
 /** 今月の家計の状況。実アプリでは DB から引く。stage 5 の state に混ぜる。 */
 const MONTHLY = { 予算: 80000, 今月の支出: 61400, 残り日数: 19 };
 
@@ -57,20 +73,20 @@ const MONTHLY = { 予算: 80000, 今月の支出: 61400, 残り日数: 19 };
  * 途中経過が見えるので、LT で「いま何問投げたか」を指差せる。
  */
 export async function* runPipeline(text) {
-  const items = parseItems(text);
+  const lines = candidateLines(text);
   const amounts = amountCandidates(text);
   const dates = dateCandidates(text);
   const stores = storeNameCandidates(text);
 
   yield {
     type: "parsed",
-    items,
+    lines,
     candidates: { 金額: amounts.map((a) => a.value), 日付: dates, 店名: stores },
     mock: MOCK,
   };
 
-  if (items.length === 0) {
-    yield { type: "done", note: "品目を検出できませんでした", summary: null };
+  if (lines.length === 0) {
+    yield { type: "done", note: "金額のある行を検出できませんでした", summary: null };
     return;
   }
 
@@ -130,9 +146,27 @@ export async function* runPipeline(text) {
     );
   }
 
+  // 行の仕分け。これが除外語リストの置き換え。
+  // 「意味で決めること」をコードの文字列一致ではなく Choice に任せる。
+  const lineQuestions = Object.fromEntries(
+    lines.map((line, index) => [
+      `行_${index}`,
+      Choice(
+        {
+          行: line.line,
+          読み取れた名前: line.name,
+          読み取れた金額: `${line.amount}円`,
+          質問: "この行はレシートの中で何にあたりますか。",
+        },
+        LINE_ROLES
+      ),
+    ])
+  );
+
   const stage1 = await ask(
     text,
     {
+      ...lineQuestions,
       ...extraction,
       店ジャンル: Choice("この店はどんな業態の店ですか。", STORE_GENRES),
       支払い方法: Choice("どの方法で支払っていますか。", PAYMENT_METHODS),
@@ -158,6 +192,12 @@ export async function* runPipeline(text) {
       // 本番では店ごとの書式の違いですぐ破綻する。だから Jev に選ばせている。
       // ここではモックを動かすためだけに使う。
       mockHints: {
+        ...Object.fromEntries(
+          lines.map((line, index) => [
+            `行_${index}`,
+            LINE_ROLE_HINTS.find(([pattern]) => pattern.test(line.line))?.[1] ?? "品物",
+          ])
+        ),
         // 業態の手がかりは店名にある。レシート全文で引くと、
         // 品目の「コーヒー豆」を見てスーパーを喫茶店だと言い出す。
         店ジャンル: GENRE_KEYWORDS.find(([pattern]) => pattern.test(stores[0] ?? ""))?.[1],
@@ -182,13 +222,41 @@ export async function* runPipeline(text) {
     経費らしさ: stage1.answers.経費にできそう?.noul ?? 0,
   };
 
-  yield stageEvent(1, "レシートを読む", `Choice x${Object.keys(extraction).length + 2} + Noul x3`, stage1, {
-    読み取り: receipt,
-    // 合計の整合チェックは Jev ではなくコードの仕事。
-    // Jev が選んだ値と、品目の積み上げを突き合わせる。
-    検算: verifyTotal(receipt.合計, items),
-    判定: fieldBands(stage1),
+  // 「品物」と判定された行だけが品目になる。
+  const items = [];
+  const rejected = [];
+  lines.forEach((line, index) => {
+    const answer = stage1.answers[`行_${index}`];
+    const role = answer?.choice ?? "その他の情報";
+    if (role === "品物") {
+      items.push({ ...line, 行の確信度: answer?.confidence ?? 0, 行の扱い: band(answer?.confidence ?? 0) });
+    } else {
+      rejected.push({ 行: line.line, 役割: role, 確信度: answer?.confidence ?? 0 });
+    }
   });
+
+  // 検算は Jev ではなくコードの仕事。足し算にモデルは要らない。
+  // Jev が選んだ合計と、品物と判定された行の積み上げを突き合わせる。
+  // **行の仕分けを間違えると、ここが必ず合わなくなる。**
+  const check = reconcile(receipt.合計, items);
+
+  yield stageEvent(
+    1,
+    "レシートを読む",
+    `Choice x${lines.length + Object.keys(extraction).length + 2} + Noul x3`,
+    stage1,
+    {
+      読み取り: receipt,
+      行の仕分け: { 品物: items.length, 品物でない: rejected.length, 内訳: rejected },
+      検算: check,
+      判定: fieldBands(stage1),
+    }
+  );
+
+  if (items.length === 0) {
+    yield { type: "done", note: "品物の行がありませんでした", summary: null };
+    return;
+  }
 
   // ---- stage 2 ------------------------------------------------------------
   // ここから fan-out。品目 N 個 → question N 個 → API 1回。
@@ -442,6 +510,8 @@ export async function* runPipeline(text) {
   const summary = {
     receipt,
     items: classified,
+    検算: check,
+    行の仕分け: { 品物: items.length, 品物でない: rejected.length, 内訳: rejected },
     必需度の金額加重: weightedNecessity(classified),
     衝動買い金額: classified.filter((i) => i.衝動買い).reduce((sum, i) => sum + i.amount, 0),
     定期購入: classified.filter((i) => i.定期購入).length,
@@ -529,17 +599,45 @@ function fieldBands(stage) {
 }
 
 /**
- * Jev が選んだ合計と、品目の積み上げを突き合わせる。
- * これは Jev の仕事ではなく、コードの仕事。足し算にモデルは要らない。
+ * Jev が選んだ合計と、品物と判定された行の積み上げを突き合わせる。
+ * これは Jev の仕事ではなく、**コードの仕事**。足し算にモデルは要らない。
+ *
+ * 外税のレシートでは「品物の積み上げ + 消費税 = 合計」になるので、
+ * 差がゼロでなくても異常とは限らない。消費税は 8% か 10%、
+ * 端数とサービス料を見ても、差が積み上げの 12% を超えることはまずない。
+ *
+ * - 差がマイナス  → 品物でない行を品物として数えている（伝票番号・支払い行など）
+ * - 差が大きすぎる → 品物の行を取りこぼしている
+ *
+ * どちらも「黙って間違った家計簿が登録される」事故なので、はっきり止める。
  */
-function verifyTotal(total, items) {
+function reconcile(total, items) {
   const sum = items.reduce((acc, item) => acc + item.amount, 0);
-  if (total == null) return { 判定: "合計を特定できず", 品目の合計: sum };
+  if (total == null) {
+    return { status: "unknown", 判定: "合計を特定できなかったので検算できない", 品物の積み上げ: sum };
+  }
+
   const diff = total - sum;
+  const taxCeiling = Math.ceil(sum * 0.12) + 1;
+  const base = { 選ばれた合計: total, 品物の積み上げ: sum, 差: diff };
+
+  if (diff === 0) {
+    return { ...base, status: "ok", 判定: "一致（税込価格で表示されているレシート）" };
+  }
+  if (diff > 0 && diff <= taxCeiling) {
+    return { ...base, status: "ok", 判定: `差 +${diff}円。消費税として説明がつく範囲` };
+  }
+  if (diff < 0) {
+    return {
+      ...base,
+      status: "error",
+      判定: `差 ${diff}円。合計より積み上げが多い。品物でない行を品物として数えている可能性が高い`,
+    };
+  }
   return {
-    判定: diff === 0 ? "一致" : `差 ${diff > 0 ? "+" : ""}${diff}円（税・値引きの可能性）`,
-    選ばれた合計: total,
-    品目の合計: sum,
+    ...base,
+    status: "error",
+    判定: `差 +${diff}円。消費税にしては大きすぎる。品物の行を取りこぼしている可能性が高い`,
   };
 }
 

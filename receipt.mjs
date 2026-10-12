@@ -6,19 +6,16 @@
 //   2. どれが正解かは Jev の Choice に選ばせる
 //   3. 選ばれた候補を、コードがそのまま使う
 //
-// Choice は候補の外を返せないので、「2026年」を合計金額として
-// でっち上げるようなことが起きない。検証コードを書かなくてよくなる。
-
-/** 品目にならない行（レジ周りの定型文）。 */
-const EXCLUDED_WORDS = [
-  "小計", "合計", "お会計", "総額", "お預り", "お預かり", "お釣り", "おつり",
-  "消費税", "税込", "税抜", "内税", "外税", "値引", "割引", "現金", "クレジット",
-  "カード", "電子マネー", "ポイント", "点数", "登録番号", "責任者", "レジ",
-  "TEL", "電話", "領収", "軽減税率", "対象",
-  // 支払い手段の行。品目ではないのに「名前 + 金額」の形をしていて紛らわしい。
-  "払い", "PayPay", "楽天ペイ", "au PAY", "Suica", "PASMO", "ICOCA",
-  "iD", "QUICPay", "nanaco", "WAON", "交通系", "コード決済",
-];
+// ここで大事なのは **コードと Jev の分担**。
+//
+//   コード … 「この数字はそもそも金額の形をしているか」（文字の形の話）
+//   Jev   … 「この行は買った品物か、小計か、伝票番号か」（意味の話）
+//
+// 以前は「小計・合計・レジ・カード…」という除外語のリストを手で持っていた。
+// それをやめた。`レジ袋` が `レジ` に引っかかって品目から消えるし、
+// 逆に `金額 ¥1,919` や `伝票番号 261-003-199-6180` は
+// リストに無いので品目として通ってしまう。
+// **意味で決めるべきことを文字列一致で書くと、こうなる。**
 
 /** 住所っぽい行。 */
 const ADDRESS_PATTERN = /(都|道|府|県|市|区|町|村)[^\s]*\d/;
@@ -26,37 +23,47 @@ const ADDRESS_PATTERN = /(都|道|府|県|市|区|町|村)[^\s]*\d/;
 const DATE_LINE_PATTERN = /\d{2,4}\s*[年\/.\-]\s*\d{1,2}\s*[月\/.\-]\s*\d{1,2}/;
 /** 時刻っぽい行。 */
 const TIME_LINE_PATTERN = /\d{1,2}\s*[:：]\s*\d{2}/;
+/** 「261-003-199-6180」のようなハイフン区切りの識別子。金額ではない。 */
+const IDENTIFIER_PATTERN = /\d+\s*[-ー−―]\s*\d+\s*[-ー−―]\s*\d+/;
+/** 「*************＊**7660」のようなマスクされた番号。 */
+const MASKED_PATTERN = /[*＊]{4,}/;
 
 /**
- * 品名 + 金額に分解する。
+ * 行末に金額がありそうな行を、**意味で判断せずに**全部集める。
  *
- * 金額はレシートの右端にあるので、**行末の数値だけ** を切り出す。
+ * 金額はレシートの右端にあるので、行末の数値だけを切り出す。
  * 行全体から数字を消すと「食パン 6枚切」が「食パン枚切」になってしまう。
+ *
+ * ここで落とすのは「そもそも金額の形をしていない」行だけ。
+ * 品物かどうかの判断はしない。それは Jev の仕事。
  */
-export function parseItems(text) {
+export function candidateLines(text) {
   return text
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => !EXCLUDED_WORDS.some((word) => line.includes(word)))
-    .filter((line) => !ADDRESS_PATTERN.test(line))
-    .filter((line) => !DATE_LINE_PATTERN.test(line))
-    .filter((line) => !TIME_LINE_PATTERN.test(line))
     .map((line) => {
+      if (ADDRESS_PATTERN.test(line)) return null;
+      if (DATE_LINE_PATTERN.test(line)) return null;
+      if (TIME_LINE_PATTERN.test(line)) return null;
+      if (IDENTIFIER_PATTERN.test(line)) return null;
+      if (MASKED_PATTERN.test(line)) return null;
+
       const match = line.match(/^(.*?)[¥￥]?\s*([0-9][0-9,]*)\s*円?\s*$/);
       if (!match) return null;
 
       const amount = Number(match[2].replace(/,/g, ""));
       if (!(amount > 0 && amount <= 9_999_999)) return null;
 
-      const name = match[1].replace(/[×xX*]\s*\d*\s*$/, "").trim();
-      // 金額だけの行は品目にしない
+      // 「牛乳 ×2」「りんご *」のような末尾の記号と個数を落とす
+      const name = match[1].replace(/[×xX*＊]\s*\d*\s*$/, "").trim();
+      // 名前が無い（金額だけの行）は候補にしない
       if ([...name].filter((c) => /\p{L}/u.test(c)).length < 2) return null;
 
       return { name, amount, line };
     })
     .filter(Boolean)
-    .slice(0, 20);
+    .slice(0, 40);
 }
 
 /**
@@ -67,13 +74,12 @@ export function amountCandidates(text) {
   const found = new Map();
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
+    if (DATE_LINE_PATTERN.test(trimmed) || TIME_LINE_PATTERN.test(trimmed)) continue;
+    if (IDENTIFIER_PATTERN.test(trimmed) || MASKED_PATTERN.test(trimmed)) continue;
+
     for (const match of trimmed.matchAll(/[¥￥]?\s*([0-9][0-9,]{0,9})\s*円?/g)) {
-      const raw = match[1];
-      const value = Number(raw.replace(/,/g, ""));
+      const value = Number(match[1].replace(/,/g, ""));
       if (!(value > 0 && value <= 9_999_999)) continue;
-      // 電話番号や日付の一部は候補から外す
-      if (/\d{2,4}[-ー]\d{2,4}[-ー]\d{3,4}/.test(trimmed)) continue;
-      if (DATE_LINE_PATTERN.test(trimmed) || TIME_LINE_PATTERN.test(trimmed)) continue;
 
       const key = String(value);
       if (!found.has(key)) found.set(key, { value, lines: [] });
@@ -91,14 +97,11 @@ export function dateCandidates(text) {
     /\d{2}\s*[\/.\-]\s*\d{1,2}\s*[\/.\-]\s*\d{1,2}/g,
     /\d{1,2}\s*月\s*\d{1,2}\s*日/g,
   ];
-  const found = new Map();
+  const found = new Set();
   for (const pattern of patterns) {
-    for (const match of text.matchAll(pattern)) {
-      const span = match[0].replace(/\s+/g, "");
-      if (!found.has(span)) found.set(span, span);
-    }
+    for (const match of text.matchAll(pattern)) found.add(match[0].replace(/\s+/g, ""));
   }
-  return [...found.keys()].slice(0, 10);
+  return [...found].slice(0, 10);
 }
 
 /** 店名の候補。レシートの上のほうの行に出る。これも多めに拾う。 */

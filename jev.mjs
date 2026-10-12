@@ -224,8 +224,12 @@ function overlap(a, b) {
   let unigramHits = 0;
   for (const char of new Set(left)) if (ru.has(char)) unigramHits += 1;
 
-  const bigramScore = lb.size ? bigramHits / Math.sqrt(lb.size) : 0;
-  const unigramScore = left.length ? unigramHits / Math.sqrt(new Set(left).size) : 0;
+  // 両側の大きさで割る（コサイン類似度の形）。
+  // 片側だけで割ると、**説明の長い選択肢ほど当たりやすくなる**。
+  // 「品物」の説明が一番長いせいで、小計の行まで品物に吸われていた。
+  const lu = new Set(left);
+  const bigramScore = lb.size && rb.size ? bigramHits / Math.sqrt(lb.size * rb.size) : 0;
+  const unigramScore = lu.size && ru.size ? unigramHits / Math.sqrt(lu.size * ru.size) : 0;
   return bigramScore + unigramScore * 0.35;
 }
 
