@@ -1,0 +1,80 @@
+{
+  "about": "費目分類の正解データ。手で付けた（taxonomy.mjs の定義に従う）。ambiguous が true の品目は、accept に挙げた費目ならどれでも正解として数える。",
+  "categories": ["食費","外食","カフェ","日用品","家電・家具","交通費","水道光熱費","通信費","趣味・娯楽","衣服","医療費","その他"],
+  "receipts": [
+    {
+      "id": "supermarket",
+      "store": "スーパーマルエツ 丸の内店",
+      "genre": "スーパー",
+      "items": [
+        { "name": "食パン 6枚切",   "amount": 198, "label": "食費" },
+        { "name": "牛乳 1L",        "amount": 258, "label": "食費" },
+        { "name": "トイレットペーパー","amount": 398, "label": "日用品" },
+        { "name": "歯ブラシ",        "amount": 298, "label": "日用品" },
+        { "name": "コーヒー豆",      "amount": 132, "label": "食費" },
+        { "name": "のむヨーグルト",   "amount": 128, "label": "食費" },
+        { "name": "電池 単3 4本",    "amount": 448, "label": "家電・家具" },
+        { "name": "カップ麺",        "amount": 178, "label": "食費" }
+      ]
+    },
+    {
+      "id": "drugstore",
+      "store": "ウェルネス薬局 神保町店",
+      "genre": "ドラッグストア",
+      "items": [
+        { "name": "アレルギー用鼻炎薬", "amount": 1280, "label": "医療費" },
+        { "name": "絆創膏 Mサイズ",    "amount": 248,  "label": "医療費" },
+        { "name": "牛乳 1000ml",      "amount": 218,  "label": "食費" },
+        { "name": "シャンプー 詰替",    "amount": 698,  "label": "日用品" },
+        { "name": "マスク 30枚",       "amount": 498,  "label": "医療費",
+          "ambiguous": true, "accept": ["医療費", "日用品"],
+          "why": "taxonomy では医療費>健康管理だが、日用品>衛生用品も筋が通る" },
+        { "name": "チョコレート",       "amount": 158,  "label": "食費" }
+      ]
+    },
+    {
+      "id": "cafe",
+      "store": "ブルーリーフ珈琲 丸の内店",
+      "genre": "カフェ・喫茶店",
+      "items": [
+        { "name": "カフェラテ Tall",   "amount": 520,  "label": "カフェ" },
+        { "name": "バタークロワッサン", "amount": 380,  "label": "カフェ",
+          "ambiguous": true, "accept": ["カフェ", "外食"],
+          "why": "店で食べるなら カフェ>軽食。持ち帰りなら外食とも読める" },
+        { "name": "ドリップ豆 200g",   "amount": 1480, "label": "食費",
+          "why": "taxonomy のカフェ not_for に「豆を買って帰る場合は食費」と明記" }
+      ]
+    },
+    {
+      "id": "electronics",
+      "store": "ヤマノ電機 秋葉原本店",
+      "genre": "家電量販店",
+      "items": [
+        { "name": "ワイヤレスイヤホン",  "amount": 14800, "label": "家電・家具" },
+        { "name": "HDMIケーブル 2m",    "amount": 1480,  "label": "家電・家具" },
+        { "name": "乾電池 単4 8本",     "amount": 698,   "label": "家電・家具" },
+        { "name": "USB-C 充電器 65W",   "amount": 3980,  "label": "家電・家具" }
+      ]
+    },
+    {
+      "id": "convenience",
+      "store": "セブンイレブン 内原駅北店",
+      "genre": "コンビニ",
+      "note": "実物のレシート。略記が多く、OCR そのままの表記で難しい",
+      "items": [
+        { "name": "バイオ50レジ袋特大1枚",        "amount": 5,   "label": "日用品" },
+        { "name": "サントリーグリーンダカラ600",   "amount": 151, "label": "食費" },
+        { "name": "7Pフルーツダイスキナシロクマバー","amount": 188, "label": "食費" },
+        { "name": "カジッテマニアゴールデンパイン", "amount": 181, "label": "食費" },
+        { "name": "果じゆるりグミライチ味",        "amount": 178, "label": "食費" },
+        { "name": "7Pゼロサイダトリプルファイバ500","amount": 108, "label": "食費" },
+        { "name": "7Pマンダリンオレンジ1.5L",     "amount": 218, "label": "食費" },
+        { "name": "サントリー天然水1L",           "amount": 168, "label": "食費" },
+        { "name": "アリナミンV50ml",              "amount": 280, "label": "医療費",
+          "ambiguous": true, "accept": ["医療費", "食費"],
+          "why": "指定医薬部外品の栄養ドリンク。飲料として食費に入れる家計簿も多い" },
+        { "name": "7PL 紙カップ270ml 20個",       "amount": 290, "label": "日用品" }
+      ]
+    }
+  ]
+}

@@ -21,3 +21,10 @@ IMG_*.png
 
 # スライドの書き出し（slides.html から再生成できる）
 jev-lt-slides.pptx
+
+# ベンチマークのビルド成果物と計測結果
+bench/apple
+bench/*-result.json
+bench/apple-free.json
+bench/apple-guided.json
+bench/*.log
