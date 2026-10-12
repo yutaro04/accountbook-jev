@@ -9,3 +9,6 @@
 # Node
 node_modules/
 npm-debug.log*
+
+# Swift でビルドする OCR バイナリ
+ocr
