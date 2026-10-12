@@ -269,6 +269,25 @@
     color: var(--fg-faint); font-size: 18px; line-height: 1.6; gap: 4px;
   }
 
+
+  /* ── 実測の比較表 ── */
+  .bench { display: flex; flex-direction: column; gap: 6px; }
+  .bh, .br {
+    display: grid; grid-template-columns: 1fr 92px 82px 108px 68px 108px;
+    gap: 12px; align-items: center;
+  }
+  .bh { font-size: 15px; letter-spacing: .1em; color: var(--fg-dim); text-transform: uppercase; }
+  .bh span:not(:first-child), .br span:not(.nm) { text-align: right; }
+  .br {
+    background: var(--bg-2); border: 1.5px solid var(--rule); border-radius: 3px;
+    padding: 13px 18px; font-size: 22px; font-weight: 700;
+  }
+  .bh { padding: 0 18px; }
+  .br .nm { font-weight: 700; font-size: 21px; }
+  .br.win { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--bg-2)); }
+  .br.win span:not(.nm) { color: var(--ok); }
+  .br .bad-n { color: var(--shu); }
+
   /* ── 下部の進行表示 ── */
   #rail {
     position: absolute; left: 0; right: 0; bottom: 0; height: 46px;
@@ -327,7 +346,7 @@
 <div id="fit">
   <div id="stage">
 
-    <!-- 1 ─────────────────────────────────────────── -->
+    <!-- 1 ────────────────────────────────────────── -->
     <section class="slide" data-note="つかみ。「レシート1枚を家計簿1件にする話です」と一言で始める。タイトルは読み上げない。">
       <div class="eyebrow mono"><span class="t">LT</span><span>8分</span></div>
       <h1>Jevで作る実用アプリ<br><span class="dim" style="font-size:.62em">家計簿のデータ設計から動くものになるまで</span></h1>
@@ -336,7 +355,7 @@
       <p class="sm mono">今日話すこと ─ レシート1枚が家計簿1件になるまで</p>
     </section>
 
-    <!-- 2 ─────────────────────────────────────────── -->
+    <!-- 2 ────────────────────────────────────────── -->
     <section class="slide" data-time="0:00" data-note="アプリのスクショを2枚貼る。位置情報と家計簿の融合という説明は30秒で切り上げて、すぐ本題の「レシート→費目」に寄せる。">
       <div class="eyebrow mono"><span class="t">00:00</span><span>何を作ったか</span></div>
       <h2>位置情報と家計簿を<br>融合した iPhone アプリ</h2>
@@ -353,7 +372,7 @@
       <p class="lead">今日の話は、この中の<br><span class="mark">「レシート1枚を家計簿1件にする」</span>部分。</p>
     </section>
 
-    <!-- 3 ─────────────────────────────────────────── -->
+    <!-- 3 ────────────────────────────────────────── -->
     <section class="slide" data-time="0:50" data-note="聴衆は Jev を知っている前提。深入りしない。「生成しない」が一番大事なので、ここだけ強く言う。40秒で抜ける。">
       <div class="eyebrow mono"><span class="t">00:50</span><span>Jev のおさらい ─ 今日使うところだけ</span></div>
       <h2>プリミティブは<span class="mono">3</span>つだけ</h2>
@@ -369,7 +388,7 @@
       </ul>
     </section>
 
-    <!-- 4 ─────────────────────────────────────────── -->
+    <!-- 4 ────────────────────────────────────────── -->
     <section class="slide" data-time="1:30" data-note="ここからが本題。「実際に悩んだこと」を順に出す。5つあるが、4は時間が押したら飛ばす。">
       <div class="eyebrow mono"><span class="t">01:30</span><span>本題</span></div>
       <h1>データ設計で<br>悩んだところ</h1>
@@ -377,7 +396,7 @@
       <p class="lead dim">実際に詰まった順に<span class="mono">5</span>つ</p>
     </section>
 
-    <!-- 5 ─────────────────────────────────────────── -->
+    <!-- 5 ────────────────────────────────────────── -->
     <section class="slide" data-note="費目はユーザーが編集できる。だから型に焼き込めない。criteria を実行時に組み立てるという一点だけ伝える。">
       <div class="eyebrow mono"><span class="t">悩み 1</span><span>費目はユーザーが増やせる</span></div>
       <h2>固定の <span class="mono">enum</span> にできない</h2>
@@ -390,7 +409,7 @@
       <p class="sm">費目を増やしても、パイプラインのコードは1行も変わらない。</p>
     </section>
 
-    <!-- 6 ─────────────────────────────────────────── -->
+    <!-- 6 ────────────────────────────────────────── -->
     <section class="slide" data-note="ここで「該当なしを返してほしいなら、不明という選択肢を自分で用意する」と言う。設計の話なので効く。">
       <div class="eyebrow mono"><span class="t">悩み 2</span><span>「分からない」をどう表現するか</span></div>
       <h2>Choice は候補から<br><span class="mark">必ず1つ</span>選ぶ</h2>
@@ -409,7 +428,7 @@
       <p class="sm">しきい値は「間違えたときの損」で決める。費目は直せるので 0.85。</p>
     </section>
 
-    <!-- 7 ─────────────────────────────────────────── -->
+    <!-- 7 ────────────────────────────────────────── -->
     <section class="slide" data-note="2段目の criteria が1段目の答えで決まる、が肝。「選択肢が1つなら決定ではないので API を呼ばない」も一言添える。">
       <div class="eyebrow mono"><span class="t">悩み 3</span><span>費目は2階層ある</span></div>
       <h2>Choice を2段に分ける</h2>
@@ -423,7 +442,7 @@
         小分類が1つ以下の費目は question を作らない ─ 選択肢が1つなら決定ではないので、API を呼ぶ意味がない。</p>
     </section>
 
-    <!-- 8 ─────────────────────────────────────────── -->
+    <!-- 8 ────────────────────────────────────────── -->
     <section class="slide" data-note="後半の伏線。「候補の外を返せない」＝値の妥当性チェックが要らない。時間が押したらここを飛ばす。">
       <div class="eyebrow mono"><span class="t">悩み 4</span><span>金額や日付をでっち上げられると困る</span></div>
       <h2>正規表現で候補を<span class="mark">多めに</span>拾い、<br>どれが正解かは Choice に選ばせる</h2>
@@ -441,7 +460,7 @@
       <p class="lead">値の妥当性チェックを<span class="mark">書かなくてよくなる</span></p>
     </section>
 
-    <!-- 9 ─────────────────────────────────────────── -->
+    <!-- 9 ────────────────────────────────────────── -->
     <section class="slide" data-note="ここが一番ウケるはず。実物のレシートを手に持って見せながら話す。3つとも違う壊れ方だった、と強調。">
       <div class="eyebrow mono"><span class="t">悩み 5</span><span>どの行が「買った品物」なのか</span></div>
       <h2>除外語リストが、実物で<br><span class="mark">3つとも違う壊れ方</span>をした</h2>
@@ -587,6 +606,49 @@
     </section>
 
     <!-- 18 ────────────────────────────────────────── -->
+    <section class="slide" data-note="実測。同じレシート・同じ品目・同じ12費目で測った。M1 Max。「候補外1件」を指差して、さっきの宇宙旅行費が実際に起きたと言う。数字は小さいデータセットでのものだと必ず添える。">
+      <div class="eyebrow mono"><span class="t">実測</span><span>同じレシート5枚・品目31件・12費目で比べた</span></div>
+      <h2>同じ仕事を、両方にやらせた</h2>
+      <div class="bench">
+        <div class="bh mono"><span>やり方</span><span>正解</span><span>候補外</span><span>1枚</span><span>往復</span><span>料金/枚</span></div>
+        <div class="br">
+          <span class="nm">Apple 端末内・文字列で回答</span>
+          <span class="mono">71.0%</span><span class="mono bad-n">1 件</span>
+          <span class="mono">3,274ms</span><span class="mono">31</span><span class="mono">—</span>
+        </div>
+        <div class="br">
+          <span class="nm">Apple 端末内・<span class="mono" style="font-size:.85em">@Generable</span> で拘束</span>
+          <span class="mono">67.7%</span><span class="mono">0 件</span>
+          <span class="mono">4,106ms</span><span class="mono">31</span><span class="mono">—</span>
+        </div>
+        <div class="br win">
+          <span class="nm">Jev・Choice</span>
+          <span class="mono">100%</span><span class="mono">0 件</span>
+          <span class="mono">186ms</span><span class="mono">5</span><span class="mono">$0.0004</span>
+        </div>
+      </div>
+      <div class="verdict" style="--c:var(--shu)">
+        <div class="lbl mono">候補外</div>
+        <div class="txt">「サントリー天然水1L」→ <b>「飲料」</b>。12費目のリストに無い語。<b>これが宇宙旅行費。</b></div>
+      </div>
+    </section>
+
+    <!-- 19 ────────────────────────────────────────── -->
+    <section class="slide" data-note="ここを飛ばすと「都合のいい数字だけ出した」と思われる。3つとも正直に言う。特に @Generable の話は、知っている人ほど刺さる。">
+      <div class="eyebrow mono"><span class="t">実測</span><span>この数字の読み方</span></div>
+      <h2>都合よく読まないために</h2>
+      <ul>
+        <li><b>31品目は小さい。</b>傾向は見えるが、数%の差を論じられる規模ではない</li>
+        <li><b>候補外ゼロは Jev 固有ではない。</b><span class="mono" style="font-size:.9em">@Generable</span> でも 0 件。
+          ただし enum は<b>コンパイル時に固定</b>で、ユーザーが費目を編集できる家計簿では使えない</li>
+        <li><b>端末内は API 料金ゼロ。</b>通信も要らない。データが端末から出ない</li>
+      </ul>
+      <div class="tear"></div>
+      <p class="sm wide">速さの差は往復回数から来ている ─ 31往復 対 5往復。
+        トークンは <b>criteria × question 数</b>で増える（31問で 47,163。費目の説明を削れば9割減るが、精度と引き換え）。</p>
+    </section>
+
+    <!-- 20 ────────────────────────────────────────── -->
     <section class="slide" data-note="ここは譲らない、と強く言う。この線引きが次の「正直な話」につながる。">
       <div class="eyebrow mono"><span class="t">ただし</span><span>線引き</span></div>
       <h2>検算は、<span class="mark">手で書く</span></h2>
@@ -605,13 +667,13 @@
         名寄せも、類似度で候補を1件に絞ってから Noul に聞いている。</p>
     </section>
 
-    <!-- 19 ────────────────────────────────────────── -->
+    <!-- 21 ────────────────────────────────────────── -->
     <section class="slide" data-time="7:10" data-note="まとめ。一言だけ。間を置く。">
       <div class="eyebrow mono"><span class="t">07:10</span><span>まとめ</span></div>
       <h1>LLM を使うときに書いていた<br>「信じないためのコード」が、<br><span class="mark">型で置き換わる。</span></h1>
     </section>
 
-    <!-- 20 ────────────────────────────────────────── -->
+    <!-- 22 ────────────────────────────────────────── -->
     <section class="slide" data-note="正直な話。全部褒めるより、線引きを示すほうが信頼される。OCRの伏線をここで回収する。">
       <div class="eyebrow mono"><span class="t">07:10</span><span>正直な話</span></div>
       <h2>万能ではない。<span class="mark">ここには効く。</span></h2>
@@ -625,7 +687,7 @@
       <p class="sm mono wide">入力 $42 / 10億トークン・出力無料 ／ 1リクエスト 64k トークン ／ Choice は最大 255 択</p>
     </section>
 
-    <!-- 21 ────────────────────────────────────────── -->
+    <!-- 23 ────────────────────────────────────────── -->
     <section class="slide" data-note="終わり。リポジトリのURLを出す。質問があれば受ける。">
       <div class="eyebrow mono"><span class="t">END</span><span>ありがとうございました</span></div>
       <h1>コードは全部<br>公開しています</h1>
@@ -639,7 +701,7 @@
     <div id="notes"><div class="h mono">発表メモ</div><div id="notes-body"></div></div>
 
     <div id="rail" class="mono">
-      <span id="pos">1 / 21</span>
+      <span id="pos">1 / 23</span>
       <span id="ticks"></span>
       <span id="clock">08:00</span>
     </div>
