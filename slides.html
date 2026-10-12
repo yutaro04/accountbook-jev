@@ -1,0 +1,751 @@
+<title>Jevで作る実用アプリ：家計簿のデータ設計から動くものになるまで</title>
+
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     レシートの組版をそのままスライドの装置にする。
+     等幅の金額列・切り取り線・朱書きの訂正。題材そのものが意匠。
+     ───────────────────────────────────────────────────────────── */
+
+  :root {
+    --bg:        #14130F;   /* 墨。黒に寄せすぎず、わずかに暖かい */
+    --bg-2:      #1C1A15;
+    --fg:        #EDE7DA;
+    --fg-dim:    #9A9384;
+    --fg-faint:  #5E5849;
+    --paper:     #F2EDE3;   /* 感熱紙 */
+    --paper-2:   #E6DFD1;
+    --paper-ink: #17150F;
+    --rule:      #332F26;
+    --shu:       #D9553B;   /* 朱書き。帳簿の訂正・検証の色 */
+    --ok:        #57A472;
+    --warn:      #D9A227;
+    --bad:       var(--shu);
+    --shadow:    rgba(0,0,0,.5);
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:        #E6E0D3;
+      --bg-2:      #EFEADF;
+      --fg:        #17150F;
+      --fg-dim:    #5F584A;
+      --fg-faint:  #A99F8B;
+      --paper:     #FFFCF6;
+      --paper-2:   #F4EFE4;
+      --paper-ink: #17150F;
+      --rule:      #CBC2AF;
+      --shu:       #B33A20;
+      --ok:        #2F7A4C;
+      --warn:      #8A5E04;
+      --shadow:    rgba(60,50,30,.18);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#14130F; --bg-2:#1C1A15; --fg:#EDE7DA; --fg-dim:#9A9384; --fg-faint:#5E5849;
+    --paper:#F2EDE3; --paper-2:#E6DFD1; --paper-ink:#17150F; --rule:#332F26;
+    --shu:#D9553B; --ok:#57A472; --warn:#D9A227; --shadow:rgba(0,0,0,.5);
+  }
+  :root[data-theme="light"] {
+    --bg:#E6E0D3; --bg-2:#EFEADF; --fg:#17150F; --fg-dim:#5F584A; --fg-faint:#A99F8B;
+    --paper:#FFFCF6; --paper-2:#F4EFE4; --paper-ink:#17150F; --rule:#CBC2AF;
+    --shu:#B33A20; --ok:#2F7A4C; --warn:#8A5E04; --shadow:rgba(60,50,30,.18);
+  }
+
+  /* 日本語のWebフォントはCSPで読めず、データURI化するには大きすぎる。
+     確実に存在する系統フォントを明示して、沈黙のフォールバックを避ける。 */
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic Medium",
+                 "Noto Sans JP", system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono {
+    font-family: "SF Mono", SFMono-Regular, Menlo, "Courier New", monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* ── ステージ。1280×720 を固定し、画面に合わせて拡大縮小する。
+        投影先が変わっても文字の大きさの関係が崩れない。 ── */
+  #fit {
+    position: fixed; inset: 0;
+    display: grid; place-items: center;
+  }
+  #stage {
+    width: 1280px; height: 720px;
+    position: relative;
+    transform: scale(var(--scale, 1));
+    transform-origin: center center;
+  }
+
+  .slide {
+    position: absolute; inset: 0;
+    padding: 62px 84px 76px;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 26px;
+  }
+  .slide.on { display: flex; animation: rise .34s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .slide.on { animation: none; }
+    * { transition: none !important; }
+  }
+
+  /* ── 文字組み ── */
+  .eyebrow {
+    font-size: 17px; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--fg-dim); display: flex; align-items: center; gap: 14px;
+  }
+  .eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+  .eyebrow .t { color: var(--shu); }
+
+  h1 { font-size: 66px; line-height: 1.22; margin: 0; font-weight: 800;
+       letter-spacing: -.02em; text-wrap: balance; }
+  h2 { font-size: 50px; line-height: 1.25; margin: 0; font-weight: 800;
+       letter-spacing: -.015em; text-wrap: balance; }
+  h3 { font-size: 31px; line-height: 1.35; margin: 0; font-weight: 700; }
+  p  { margin: 0; font-size: 27px; line-height: 1.6; max-width: 30em; }
+  .lead { font-size: 33px; line-height: 1.5; font-weight: 600; }
+  .dim { color: var(--fg-dim); }
+  /* 注記は一行で収まってほしいので、本文の 30em 上限は効かせない */
+  .sm  { font-size: 21px; line-height: 1.55; color: var(--fg-dim); max-width: none; }
+  .wide { max-width: none; }
+  strong, b { font-weight: 800; }
+  .mark { color: var(--shu); font-weight: 800; }
+  .under { box-shadow: inset 0 -.38em 0 color-mix(in srgb, var(--shu) 22%, transparent); }
+
+  ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 15px; }
+  /* grid や flex にすると <b> と後ろの地の文が別々のアイテムに割れて、
+     地の文が行頭記号の幅に押し込まれる。素直に相対配置で逃がす。 */
+  li { font-size: 27px; line-height: 1.5; position: relative; padding-left: 38px; }
+  li::before {
+    content: "—"; position: absolute; left: 0; top: 0;
+    color: var(--shu); font-weight: 700;
+  }
+
+  /* ── 切り取り線。レシートのミシン目 ── */
+  .tear { height: 0; border-top: 2px dashed var(--rule); margin: 4px 0; }
+
+  /* ── 紙。濃い地に対して、唯一の明るい面 ── */
+  .paper {
+    background: var(--paper); color: var(--paper-ink);
+    padding: 26px 30px; border-radius: 2px;
+    box-shadow: 0 14px 34px var(--shadow);
+    font-size: 23px; line-height: 1.75;
+  }
+  /* 上下をちぎった紙の縁 */
+  .paper.torn {
+    -webkit-mask:
+      linear-gradient(#000 0 0) 0 7px / 100% calc(100% - 14px) no-repeat,
+      repeating-linear-gradient(90deg, #000 0 7px, transparent 7px 14px) 0 0 / 100% 7px no-repeat,
+      repeating-linear-gradient(90deg, transparent 0 7px, #000 7px 14px) 0 100% / 100% 7px no-repeat;
+            mask:
+      linear-gradient(#000 0 0) 0 7px / 100% calc(100% - 14px) no-repeat,
+      repeating-linear-gradient(90deg, #000 0 7px, transparent 7px 14px) 0 0 / 100% 7px no-repeat,
+      repeating-linear-gradient(90deg, transparent 0 7px, #000 7px 14px) 0 100% / 100% 7px no-repeat;
+    padding: 30px 30px 32px;
+  }
+
+  /* ── レシートの行。品名 … 金額 ── */
+  .rrow { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 14px; }
+  .rrow .nm { overflow: hidden; white-space: nowrap; }
+  .rrow .nm::after {
+    content: " ·································································";
+    color: color-mix(in srgb, currentColor 28%, transparent); letter-spacing: .1em;
+  }
+  .rrow .am { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .rrow.sum { border-top: 1.5px solid currentColor; padding-top: 9px; margin-top: 7px; }
+  .rrow.strike .nm, .rrow.strike .am { text-decoration: line-through; opacity: .45; }
+
+  /* 朱書き。帳簿の訂正と同じ使い方 */
+  .shu-note {
+    color: var(--shu); font-size: 19px; font-weight: 700;
+    display: flex; align-items: center; gap: 9px; padding-left: 2px;
+  }
+  .shu-note::before { content: "↳"; font-size: 17px; }
+
+  /* ── 2段組 ── */
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; align-items: start; }
+  .two.wide-l { grid-template-columns: 1.25fr 1fr; }
+  .two.wide-r { grid-template-columns: 1fr 1.3fr; }
+
+  /* ── 対比（手で書く → 不要） ── */
+  .vs { display: flex; flex-direction: column; gap: 11px; }
+  .vs-row {
+    display: grid; grid-template-columns: 1fr 42px 1fr; align-items: center; gap: 14px;
+    font-size: 22px; line-height: 1.4;
+  }
+  .vs-row .was {
+    text-align: right; color: var(--fg-dim); text-decoration: line-through;
+    text-decoration-color: color-mix(in srgb, var(--shu) 70%, transparent);
+    text-decoration-thickness: 2px;
+  }
+  .vs-row .arr { text-align: center; color: var(--shu); font-weight: 800; }
+  .vs-row .now { font-weight: 700; }
+  .vs-head { display: grid; grid-template-columns: 1fr 42px 1fr; gap: 14px;
+             font-size: 16px; letter-spacing: .14em; color: var(--fg-dim); text-transform: uppercase; }
+  .vs-head span:first-child { text-align: right; }
+
+  /* ── 数値の強調 ── */
+  .stats { display: flex; gap: 16px; }
+  .stat {
+    flex: 1; border: 1.5px solid var(--rule); border-radius: 3px;
+    padding: 16px 18px; display: flex; flex-direction: column; gap: 3px;
+    background: var(--bg-2);
+  }
+  .stat .k { font-size: 15px; letter-spacing: .1em; color: var(--fg-dim); text-transform: uppercase; }
+  .stat .v { font-size: 42px; font-weight: 800; line-height: 1.08; font-variant-numeric: tabular-nums; }
+  .stat .v small { font-size: 18px; font-weight: 600; color: var(--fg-dim); }
+  .stat.hi { border-color: var(--shu); }
+  .stat.hi .v { color: var(--shu); }
+
+  /* ── 確信度の3段 ── */
+  .bands { display: flex; flex-direction: column; gap: 10px; }
+  .band {
+    display: grid; grid-template-columns: 200px 1fr; align-items: center; gap: 20px;
+    border-left: 5px solid var(--c); padding: 12px 0 12px 20px; background: var(--bg-2);
+  }
+  .band .r { font-size: 25px; font-weight: 800; color: var(--c); font-variant-numeric: tabular-nums; }
+  .band .d { font-size: 23px; }
+
+  /* ── パイプライン ── */
+  .pipe { display: flex; flex-direction: column; gap: 7px; }
+  .step {
+    display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 18px;
+    border: 1.5px solid var(--rule); background: var(--bg-2);
+    padding: 12px 18px; border-radius: 3px;
+  }
+  .step .n {
+    width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+    border: 1.5px solid var(--shu); color: var(--shu); font-weight: 800; font-size: 17px;
+  }
+  .step .nm { font-size: 24px; font-weight: 700; }
+  .step .q { font-size: 18px; color: var(--fg-dim); }
+  .prim { font-weight: 800; }
+  .p-choice { color: #6FA8FF; }
+  .p-score  { color: #C49BFF; }
+  .p-noul   { color: #4FC6CC; }
+  @media (prefers-color-scheme: light) {
+    .p-choice { color: #1F5FC4; } .p-score { color: #6A3BB8; } .p-noul { color: #0E7C85; }
+  }
+  :root[data-theme="light"] .p-choice { color:#1F5FC4; }
+  :root[data-theme="light"] .p-score  { color:#6A3BB8; }
+  :root[data-theme="light"] .p-noul   { color:#0E7C85; }
+  :root[data-theme="dark"] .p-choice { color:#6FA8FF; }
+  :root[data-theme="dark"] .p-score  { color:#C49BFF; }
+  :root[data-theme="dark"] .p-noul   { color:#4FC6CC; }
+
+  /* ── コード ── */
+  pre {
+    margin: 0; background: var(--bg-2); border: 1.5px solid var(--rule);
+    border-radius: 3px; padding: 18px 20px; font-size: 19px; line-height: 1.62;
+    overflow-x: auto; color: var(--fg);
+  }
+  pre .c { color: var(--fg-faint); }
+  pre .k { color: var(--shu); }
+  pre .s { color: var(--ok); }
+
+  /* ── 検算の結果 ── */
+  .verdict {
+    display: flex; align-items: center; gap: 16px;
+    border: 2px solid var(--c); border-radius: 3px; padding: 15px 22px;
+    background: color-mix(in srgb, var(--c) 10%, transparent);
+  }
+  .verdict .lbl { font-size: 26px; font-weight: 800; color: var(--c); white-space: nowrap; }
+  .verdict .txt { font-size: 21px; }
+
+  /* ── 画面の控え（スクショを貼る場所） ── */
+  .shot {
+    border: 2px dashed var(--rule); border-radius: 3px; min-height: 190px;
+    display: grid; place-items: center; text-align: center; padding: 20px;
+    color: var(--fg-faint); font-size: 18px; line-height: 1.6; gap: 4px;
+  }
+
+  /* ── 下部の進行表示 ── */
+  #rail {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 46px;
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center;
+    gap: 20px; padding: 0 84px 10px; font-size: 15px; color: var(--fg-dim);
+  }
+  #ticks { display: flex; gap: 3px; }
+  #ticks i { width: 15px; height: 3px; background: var(--rule); border-radius: 2px; }
+  #ticks i.done { background: var(--fg-faint); }
+  #ticks i.now  { background: var(--shu); }
+  #clock { font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+  #clock.run { color: var(--fg); }
+  #clock.over { color: var(--shu); font-weight: 700; }
+
+  /* ── 発表メモ ── */
+  #notes {
+    position: absolute; left: 0; right: 0; bottom: 46px;
+    background: var(--bg-2); border-top: 2px solid var(--shu);
+    padding: 16px 84px 14px; font-size: 18px; line-height: 1.6; color: var(--fg);
+    display: none; max-height: 220px; overflow-y: auto;
+  }
+  #notes.on { display: block; }
+  #notes .h { font-size: 13px; letter-spacing: .16em; color: var(--shu);
+              text-transform: uppercase; margin-bottom: 6px; }
+
+  /* ── 一覧 ── */
+  #grid {
+    position: fixed; inset: 0; background: var(--bg); z-index: 40;
+    display: none; grid-template-columns: repeat(5, 1fr); gap: 12px;
+    padding: 28px; overflow-y: auto; align-content: start;
+  }
+  #grid.on { display: grid; }
+  #grid button {
+    border: 1.5px solid var(--rule); background: var(--bg-2); color: var(--fg);
+    border-radius: 3px; padding: 12px 13px; text-align: left; cursor: pointer;
+    display: flex; flex-direction: column; gap: 5px; min-height: 92px; font: inherit;
+  }
+  #grid button:hover, #grid button:focus-visible { border-color: var(--shu); outline: none; }
+  #grid button .n { font-size: 12px; color: var(--fg-dim); letter-spacing: .1em; }
+  #grid button .t { font-size: 15px; font-weight: 700; line-height: 1.35; }
+
+  /* ── 操作の案内 ── */
+  #help {
+    position: fixed; right: 16px; top: 16px; z-index: 50;
+    font-size: 12px; color: var(--fg-faint); text-align: right; line-height: 1.75;
+    pointer-events: none; transition: opacity .4s; letter-spacing: .03em;
+  }
+  #help.hide { opacity: 0; }
+  kbd {
+    font-family: inherit; border: 1px solid var(--rule); border-radius: 3px;
+    padding: 0 4px; color: var(--fg-dim);
+  }
+  :focus-visible { outline: 2px solid var(--shu); outline-offset: 3px; }
+</style>
+
+<div id="fit">
+  <div id="stage">
+
+    <!-- 1 ─────────────────────────────────────────── -->
+    <section class="slide" data-note="つかみ。「レシート1枚を家計簿1件にする話です」と一言で始める。タイトルは読み上げない。">
+      <div class="eyebrow mono"><span class="t">LT</span><span>8分</span></div>
+      <h1>Jevで作る実用アプリ<br><span class="dim" style="font-size:.62em">家計簿のデータ設計から動くものになるまで</span></h1>
+      <div class="tear"></div>
+      <p class="lead">LLM の出力を<span class="mark">信じないためのコード</span>を、<br>書かなくてよくなる。</p>
+      <p class="sm mono">今日話すこと ─ レシート1枚が家計簿1件になるまで</p>
+    </section>
+
+    <!-- 2 ─────────────────────────────────────────── -->
+    <section class="slide" data-time="0:00" data-note="アプリのスクショを2枚貼る。位置情報と家計簿の融合という説明は30秒で切り上げて、すぐ本題の「レシート→費目」に寄せる。">
+      <div class="eyebrow mono"><span class="t">00:00</span><span>何を作ったか</span></div>
+      <h2>位置情報と家計簿を<br>融合した iPhone アプリ</h2>
+      <div class="two">
+        <ul>
+          <li>店に10分以上いると「ここで買い物しました？」と通知が来る</li>
+          <li>レシートを撮ると金額・店名・品目が自動で入る</li>
+        </ul>
+        <div class="shot">
+          <div><b>スクリーンショット2枚</b><br>入力画面 ／ レシート確認画面</div>
+        </div>
+      </div>
+      <div class="tear"></div>
+      <p class="lead">今日の話は、この中の<br><span class="mark">「レシート1枚を家計簿1件にする」</span>部分。</p>
+    </section>
+
+    <!-- 3 ─────────────────────────────────────────── -->
+    <section class="slide" data-time="0:50" data-note="聴衆は Jev を知っている前提。深入りしない。「生成しない」が一番大事なので、ここだけ強く言う。40秒で抜ける。">
+      <div class="eyebrow mono"><span class="t">00:50</span><span>Jev のおさらい ─ 今日使うところだけ</span></div>
+      <h2>プリミティブは<span class="mono">3</span>つだけ</h2>
+      <div class="stats">
+        <div class="stat"><div class="k mono">選ぶ</div><div class="v"><span class="prim p-choice">Choice</span></div><div class="sm">選択肢＋確率＋確信度</div></div>
+        <div class="stat"><div class="k mono">測る</div><div class="v"><span class="prim p-score">Score</span></div><div class="sm">ルブリックで採点</div></div>
+        <div class="stat"><div class="k mono">判定する</div><div class="v"><span class="prim p-noul">Noul</span></div><div class="sm">はい／いいえの確率</div></div>
+      </div>
+      <div class="tear"></div>
+      <ul>
+        <li><b>生成しない。</b>返るのは選択肢・数値・確率だけ。文章は書けない</li>
+        <li>複数の question を<b>1回のリクエストで並列評価</b>。全問が同じ <span class="mono">state</span> を見る</li>
+      </ul>
+    </section>
+
+    <!-- 4 ─────────────────────────────────────────── -->
+    <section class="slide" data-time="1:30" data-note="ここからが本題。「実際に悩んだこと」を順に出す。5つあるが、4は時間が押したら飛ばす。">
+      <div class="eyebrow mono"><span class="t">01:30</span><span>本題</span></div>
+      <h1>データ設計で<br>悩んだところ</h1>
+      <div class="tear"></div>
+      <p class="lead dim">実際に詰まった順に<span class="mono">5</span>つ</p>
+    </section>
+
+    <!-- 5 ─────────────────────────────────────────── -->
+    <section class="slide" data-note="費目はユーザーが編集できる。だから型に焼き込めない。criteria を実行時に組み立てるという一点だけ伝える。">
+      <div class="eyebrow mono"><span class="t">悩み 1</span><span>費目はユーザーが増やせる</span></div>
+      <h2>固定の <span class="mono">enum</span> にできない</h2>
+      <div class="paper mono">
+        <div style="font-size:21px">食費 ／ 外食 ／ カフェ ／ 日用品 ／ 交通費 ／ 医療費 …</div>
+        <div style="font-size:19px;opacity:.6;margin-top:6px">↑ ユーザーが自由に追加・編集できる</div>
+      </div>
+      <div class="tear"></div>
+      <p class="lead"><span class="prim p-choice">Choice</span> の <span class="mono">criteria</span> を<span class="mark">実行時に組み立てる</span></p>
+      <p class="sm">費目を増やしても、パイプラインのコードは1行も変わらない。</p>
+    </section>
+
+    <!-- 6 ─────────────────────────────────────────── -->
+    <section class="slide" data-note="ここで「該当なしを返してほしいなら、不明という選択肢を自分で用意する」と言う。設計の話なので効く。">
+      <div class="eyebrow mono"><span class="t">悩み 2</span><span>「分からない」をどう表現するか</span></div>
+      <h2>Choice は候補から<br><span class="mark">必ず1つ</span>選ぶ</h2>
+      <p>違うのは、<b>確信度が一緒に返る</b>こと。しきい値で分岐が書ける。</p>
+      <div class="bands">
+        <div class="band" style="--c:var(--ok)">
+          <div class="r mono">≧ 0.85</div><div class="d">そのまま確定してよい</div>
+        </div>
+        <div class="band" style="--c:var(--warn)">
+          <div class="r mono">0.50 – 0.85</div><div class="d">ユーザーに確認（2位の候補と並べて二択で聞ける）</div>
+        </div>
+        <div class="band" style="--c:var(--bad)">
+          <div class="r mono">&lt; 0.50</div><div class="d">採用しない。手入力に回す</div>
+        </div>
+      </div>
+      <p class="sm">しきい値は「間違えたときの損」で決める。費目は直せるので 0.85。</p>
+    </section>
+
+    <!-- 7 ─────────────────────────────────────────── -->
+    <section class="slide" data-note="2段目の criteria が1段目の答えで決まる、が肝。「選択肢が1つなら決定ではないので API を呼ばない」も一言添える。">
+      <div class="eyebrow mono"><span class="t">悩み 3</span><span>費目は2階層ある</span></div>
+      <h2>Choice を2段に分ける</h2>
+      <div class="paper mono" style="font-size:24px">
+        <div><b>食費</b> <span style="opacity:.45">›</span> 食材 ／ 飲料 ／ 菓子 ／ 酒類</div>
+        <div><b>日用品</b> <span style="opacity:.45">›</span> 洗剤 ／ 紙製品 ／ キッチン ／ 衛生</div>
+      </div>
+      <div class="tear"></div>
+      <p class="lead">2段目の <span class="mono">criteria</span> は、<span class="mark">1段目の答えで決まる</span></p>
+      <p class="sm">criteria を実行時に組み立てられるから書ける。<br>
+        小分類が1つ以下の費目は question を作らない ─ 選択肢が1つなら決定ではないので、API を呼ぶ意味がない。</p>
+    </section>
+
+    <!-- 8 ─────────────────────────────────────────── -->
+    <section class="slide" data-note="後半の伏線。「候補の外を返せない」＝値の妥当性チェックが要らない。時間が押したらここを飛ばす。">
+      <div class="eyebrow mono"><span class="t">悩み 4</span><span>金額や日付をでっち上げられると困る</span></div>
+      <h2>正規表現で候補を<span class="mark">多めに</span>拾い、<br>どれが正解かは Choice に選ばせる</h2>
+      <div class="two wide-l">
+        <div class="paper mono" style="font-size:20px">
+          <div style="opacity:.55;font-size:17px;margin-bottom:6px">合計金額の候補（正規表現が拾った）</div>
+          <div>3000 ／ <b style="color:var(--shu)">2201</b> ／ 2038 ／ 799 ／ 448 ／ 398 …</div>
+          <div style="opacity:.55;font-size:17px;margin-top:6px">お預り ／ <b>合計</b> ／ 小計 ／ お釣り ／ 品目 …</div>
+        </div>
+        <div>
+          <p>Choice は<b>候補の外を返せない</b>。<br>この並びの中から<span class="mark">1つ選ぶだけ</span>。</p>
+        </div>
+      </div>
+      <div class="tear"></div>
+      <p class="lead">値の妥当性チェックを<span class="mark">書かなくてよくなる</span></p>
+    </section>
+
+    <!-- 9 ─────────────────────────────────────────── -->
+    <section class="slide" data-note="ここが一番ウケるはず。実物のレシートを手に持って見せながら話す。3つとも違う壊れ方だった、と強調。">
+      <div class="eyebrow mono"><span class="t">悩み 5</span><span>どの行が「買った品物」なのか</span></div>
+      <h2>除外語リストが、実物で<br><span class="mark">3つとも違う壊れ方</span>をした</h2>
+      <div class="paper torn mono" style="font-size:21px;line-height:1.5">
+        <div class="rrow strike"><span class="nm">バイオ50レジ袋特大1枚</span><span class="am">5</span></div>
+        <div class="shu-note" style="font-size:18px">「レジ袋」が <b>「レジ」</b> に引っかかって消えた</div>
+        <div class="rrow" style="margin-top:10px"><span class="nm">伝票番号 123-456-789-0123</span><span class="am">0123</span></div>
+        <div class="shu-note" style="font-size:18px">末尾の 0123 が<b>金額として計上</b>された</div>
+        <div class="rrow" style="margin-top:10px"><span class="nm">金額</span><span class="am">¥1,919</span></div>
+        <div class="shu-note" style="font-size:18px">リストに無いので<b>品目として通った</b></div>
+      </div>
+      <p style="font-size:29px;font-weight:700;line-height:1.45"><span class="mark">意味で決めるべきことを、文字列一致で書いた</span>のが間違い。</p>
+    </section>
+
+    <!-- 10 ────────────────────────────────────────── -->
+    <section class="slide" data-note="分担の線をはっきり言う。「コードが見るのは形だけ。意味の判断は全部 Jev に渡す」。これがこのトークの設計思想。">
+      <div class="eyebrow mono"><span class="t">悩み 5 の答え</span><span>行を Choice で仕分ける</span></div>
+      <h2>金額のある行を<span class="mono">6</span>つに分類する</h2>
+      <div class="paper mono" style="font-size:21px;line-height:2">
+        品物 ／ 小計や合計 ／ 税 ／ 支払いや釣り銭 ／ 番号や識別子 ／ その他
+      </div>
+      <div class="tear"></div>
+      <div class="two">
+        <div>
+          <h3 class="dim mono" style="font-size:17px;letter-spacing:.14em">コード</h3>
+          <p style="font-size:24px">そもそも<b>金額の形をしているか</b><br><span class="sm">住所・日付・ハイフン区切りの番号を落とす</span></p>
+        </div>
+        <div>
+          <h3 class="mono" style="font-size:17px;letter-spacing:.14em;color:var(--shu)">Jev</h3>
+          <p style="font-size:24px">この行は<b>何にあたるか</b><br><span class="sm">品物か、小計か、伝票番号か</span></p>
+        </div>
+      </div>
+      <p class="sm">リストを足しても、次のレシートで別の形で破れる。仕組みごと置き換えた。</p>
+    </section>
+
+    <!-- 11 ────────────────────────────────────────── -->
+    <section class="slide" data-note="実物の数字。差152が消費税95+57とぴったり一致するのを指差す。ここは数字が全部合うので気持ちいい。">
+      <div class="eyebrow mono"><span class="t">そして</span><span>必ず検算する</span></div>
+      <h2>足し算に、モデルは要らない</h2>
+      <div class="two wide-r">
+        <div>
+          <p style="font-size:25px">行の仕分けを間違えると、<br><b>合計が必ず合わなくなる。</b></p>
+          <div class="tear"></div>
+          <p class="sm" style="margin-top:14px">差がマイナス → 品物でない行を数えている<br>
+            差が大きすぎる → 品物の行を取りこぼしている</p>
+        </div>
+        <div class="paper mono torn">
+          <div class="rrow"><span class="nm">品物の積み上げ（10件）</span><span class="am">1,767</span></div>
+          <div class="rrow"><span class="nm">消費税 8%</span><span class="am">95</span></div>
+          <div class="rrow"><span class="nm">消費税 10%</span><span class="am">57</span></div>
+          <div class="rrow sum"><span class="nm">レシートの合計</span><span class="am">1,919</span></div>
+        </div>
+      </div>
+      <div class="verdict" style="--c:var(--ok)">
+        <div class="lbl mono">検算 OK</div>
+        <div class="txt">差 <b class="mono">152</b> 円は、消費税 <span class="mono">95 + 57</span> ちょうど</div>
+      </div>
+    </section>
+
+    <!-- 12 ────────────────────────────────────────── -->
+    <section class="slide" data-note="正直に添える。「大きく壊れたら必ず気づく」ための仕掛けであって、万全ではない。ここを言うと信頼される。">
+      <div class="eyebrow mono"><span class="t">検算</span><span>できること・できないこと</span></div>
+      <h2>これで全部は防げない</h2>
+      <p class="lead">数十円の品目を1つ落としても、<br>差は<span class="mark">税の範囲に収まってしまう</span>。</p>
+      <div class="tear"></div>
+      <p class="lead">「絶対に正しい」ではなく<br><span class="mark">「大きく壊れたら必ず気づく」</span>ための仕掛け。</p>
+      <p class="sm">合わなければ赤で止める。黙って間違った家計簿が登録されるのが一番まずい。</p>
+    </section>
+
+    <!-- 13 ────────────────────────────────────────── -->
+    <section class="slide" data-time="3:30" data-note="デモ。落ちたら JEV_MOCK=1。写真ドロップ → 「このOCRはJevではありません」を必ず言う（最後の伏線）。">
+      <div class="eyebrow mono"><span class="t">03:30</span><span>デモ</span></div>
+      <h2>レシート写真から、家計簿1件まで</h2>
+      <div class="pipe">
+        <div class="step"><div class="n mono">0</div><div class="nm">写真をドロップ → テキストに</div><div class="q mono">Apple Vision ／ <b style="color:var(--shu)">Jev ではない</b></div></div>
+        <div class="step"><div class="n mono">1</div><div class="nm">行を仕分ける</div><div class="q mono"><span class="prim p-choice">Choice</span>×(行数+5) ＋ <span class="prim p-noul">Noul</span>×3</div></div>
+        <div class="step"><div class="n mono">2</div><div class="nm">費目を決める（大分類）</div><div class="q mono"><span class="prim p-choice">Choice</span>×N</div></div>
+        <div class="step"><div class="n mono">3</div><div class="nm">費目を決める（小分類）</div><div class="q mono"><span class="prim p-choice">Choice</span>×N′</div></div>
+        <div class="step"><div class="n mono">4</div><div class="nm">品目の性質を見る</div><div class="q mono"><span class="prim p-score">Score</span>×N ＋ <span class="prim p-noul">Noul</span>×2N</div></div>
+        <div class="step"><div class="n mono">5</div><div class="nm">家計簿として評価する</div><div class="q mono"><span class="prim p-score">Score</span>×3 ＋ <span class="prim p-noul">Noul</span>×2</div></div>
+      </div>
+    </section>
+
+    <!-- 14 ────────────────────────────────────────── -->
+    <section class="slide" data-note="デモ中にこの数字を指差す。ここが一番効く。数字はスーパーのサンプル（13行→品物8件）。実物のレシートなら 17行→品物10件・question 70・API 5回。本番の値は画面の実測に読み替える。">
+      <div class="eyebrow mono"><span class="t">デモ</span><span>ここを指差す</span></div>
+      <h2>question を増やしても、<br>往復は増えない</h2>
+      <div class="stats">
+        <div class="stat"><div class="k mono">候補行</div><div class="v">13<small> 行</small></div></div>
+        <div class="stat"><div class="k mono">品物</div><div class="v">8<small> 件</small></div></div>
+        <div class="stat hi"><div class="k mono">question</div><div class="v">64<small> 個</small></div></div>
+        <div class="stat hi"><div class="k mono">API 呼び出し</div><div class="v">5<small> 回</small></div></div>
+      </div>
+      <div class="tear"></div>
+      <p class="lead">Jev は questions を<span class="mark">並列・独立</span>に評価する。<br>
+        ステージごとの往復は、常に <span class="mono">1</span> 回。</p>
+      <p class="sm">品目が3個でも20個でも、ステージの所要時間はほとんど変わらない。</p>
+    </section>
+
+    <!-- 15 ────────────────────────────────────────── -->
+    <section class="slide" data-time="5:30" data-note="ここが一番伝わる部分。実際に書いた Swift を見せる。「宇宙旅行費」でちょっと笑いが取れるはず。">
+      <div class="eyebrow mono"><span class="t">05:30</span><span>本題</span></div>
+      <h2>以前は、出力を<span class="mark">信じないためのコード</span>を<br>手で書いていた</h2>
+      <pre class="mono"><span class="c">// 候補に無い費目名を返してきた場合は採用しない</span>
+<span class="k">if</span> categoryNames.contains(categoryName) {
+    merged.suggestedCategoryName = categoryName
+}
+
+<span class="c">// 0 や極端な値は採用しない</span>
+<span class="k">if</span> extraction.totalAmount &gt; 0, extraction.totalAmount &lt;= 9_999_999 {
+    merged.totalAmount = extraction.totalAmount
+}</pre>
+      <p class="sm">Apple のオンデバイス LLM を使っていた頃のコード。テストも書いた。</p>
+    </section>
+
+    <!-- 16 ────────────────────────────────────────── -->
+    <section class="slide" data-note="「宇宙旅行費」を弾くコードが要らない。Choice は選択肢の外を返せないから。ここは間を置いて言い切る。">
+      <div class="eyebrow mono"><span class="t">05:30</span><span>そのためのテスト</span></div>
+      <pre class="mono"><span class="k">@Test</span>(<span class="s">"候補に無い費目名は採用しない"</span>)
+<span class="k">func</span> rejectsUnknownCategory() {
+    <span class="k">let</span> merged = ReceiptAIParser.merge(
+        ai: extraction(categoryName: <span class="s">"宇宙旅行費"</span>), ...)
+    #expect(merged.suggestedCategoryName == <span class="k">nil</span>)
+}</pre>
+      <div class="tear"></div>
+      <p class="lead">この<span class="mark">「宇宙旅行費」を弾くコード</span>が、<br>Jev だと要らない。</p>
+      <p class="lead dim" style="font-size:27px">Choice は、選択肢の外を返せないから。</p>
+    </section>
+
+    <!-- 17 ────────────────────────────────────────── -->
+    <section class="slide" data-note="対応表。左が消えて右になる、という流れで読む。pipeline.mjs には候補の外を弾くコードが1行も無い、と言い切る。">
+      <div class="eyebrow mono"><span class="t">対応</span><span>手で書いていたもの → 型で保証される</span></div>
+      <h2>書かなくてよくなったもの</h2>
+      <div class="vs">
+        <div class="vs-head mono"><span>手で書いていた</span><span></span><span>Jev</span></div>
+        <div class="vs-row"><div class="was">候補外の費目名を弾く</div><div class="arr mono">→</div><div class="now"><span class="prim p-choice">Choice</span> が型で保証</div></div>
+        <div class="vs-row"><div class="was">金額の範囲チェック</div><div class="arr mono">→</div><div class="now">候補から選ばせれば範囲外が出ない</div></div>
+        <div class="vs-row"><div class="was">除外語のリスト</div><div class="arr mono">→</div><div class="now"><span class="prim p-choice">Choice</span> で行を仕分ける</div></div>
+        <div class="vs-row"><div class="was">「分からない」が表現できない</div><div class="arr mono">→</div><div class="now">確信度が返る</div></div>
+        <div class="vs-row"><div class="was">1品目ずつ問い合わせ</div><div class="arr mono">→</div><div class="now">questions を並列評価</div></div>
+      </div>
+      <p class="sm wide"><span class="mono">pipeline.mjs</span> には、<b>候補の外を弾くコードが1行も無い。</b></p>
+    </section>
+
+    <!-- 18 ────────────────────────────────────────── -->
+    <section class="slide" data-note="ここは譲らない、と強く言う。この線引きが次の「正直な話」につながる。">
+      <div class="eyebrow mono"><span class="t">ただし</span><span>線引き</span></div>
+      <h2>検算は、<span class="mark">手で書く</span></h2>
+      <div class="two">
+        <div>
+          <h3 class="mono dim" style="font-size:17px;letter-spacing:.14em;margin-bottom:12px">Jev に置き換わる</h3>
+          <p style="font-size:26px">モデルの出力を<br><b>疑うコード</b></p>
+        </div>
+        <div>
+          <h3 class="mono" style="font-size:17px;letter-spacing:.14em;color:var(--shu);margin-bottom:12px">置き換わらない</h3>
+          <p style="font-size:26px">そもそもコードが<br><b>やるべき計算</b></p>
+        </div>
+      </div>
+      <div class="tear"></div>
+      <p class="sm">足し算・絞り込み・重み付けはコードの仕事。<br>
+        名寄せも、類似度で候補を1件に絞ってから Noul に聞いている。</p>
+    </section>
+
+    <!-- 19 ────────────────────────────────────────── -->
+    <section class="slide" data-time="7:10" data-note="まとめ。一言だけ。間を置く。">
+      <div class="eyebrow mono"><span class="t">07:10</span><span>まとめ</span></div>
+      <h1>LLM を使うときに書いていた<br>「信じないためのコード」が、<br><span class="mark">型で置き換わる。</span></h1>
+    </section>
+
+    <!-- 20 ────────────────────────────────────────── -->
+    <section class="slide" data-note="正直な話。全部褒めるより、線引きを示すほうが信頼される。OCRの伏線をここで回収する。">
+      <div class="eyebrow mono"><span class="t">07:10</span><span>正直な話</span></div>
+      <h2>万能ではない。<span class="mark">ここには効く。</span></h2>
+      <ul>
+        <li><b>テキスト専用。</b>OCR はできない ─ デモの画像は端末の Vision でやっている</li>
+        <li><b>生成しない。</b>「節約アドバイスを書いて」はできない。測ることしかできない</li>
+        <li><b>クラウド API。</b>キーを守るプロキシが要る。端末外にデータを出さない方針のアプリには、まだ入れていない</li>
+        <li><b>全部投げるのは間違い。</b>コードがやるべき計算はコードでやる</li>
+      </ul>
+      <div class="tear"></div>
+      <p class="sm mono wide">入力 $42 / 10億トークン・出力無料 ／ 1リクエスト 64k トークン ／ Choice は最大 255 択</p>
+    </section>
+
+    <!-- 21 ────────────────────────────────────────── -->
+    <section class="slide" data-note="終わり。リポジトリのURLを出す。質問があれば受ける。">
+      <div class="eyebrow mono"><span class="t">END</span><span>ありがとうございました</span></div>
+      <h1>コードは全部<br>公開しています</h1>
+      <div class="paper mono" style="font-size:24px">
+        github.com/yutaro04/accountbook-jev
+      </div>
+      <div class="tear"></div>
+      <p class="sm wide">依存ゼロ（Node 標準モジュールのみ）／ <span class="mono">JEV_MOCK=1</span> でキー無しでも動きます</p>
+    </section>
+
+    <div id="notes"><div class="h mono">発表メモ</div><div id="notes-body"></div></div>
+
+    <div id="rail" class="mono">
+      <span id="pos">1 / 21</span>
+      <span id="ticks"></span>
+      <span id="clock">08:00</span>
+    </div>
+  </div>
+</div>
+
+<div id="grid"></div>
+
+<div id="help" class="mono">
+  <kbd>←</kbd> <kbd>→</kbd> ページ送り ・ <kbd>O</kbd> 一覧<br>
+  <kbd>N</kbd> 発表メモ ・ <kbd>T</kbd> タイマー ・ <kbd>F</kbd> 全画面
+</div>
+
+<script>
+  const slides = [...document.querySelectorAll(".slide")];
+  const ticks  = document.getElementById("ticks");
+  const pos    = document.getElementById("pos");
+  const clock  = document.getElementById("clock");
+  const notes  = document.getElementById("notes");
+  const grid   = document.getElementById("grid");
+  const help   = document.getElementById("help");
+  let index = 0;
+
+  /* ── ステージを画面に合わせる。文字の大きさの関係を崩さない ── */
+  function fit() {
+    const scale = Math.min(innerWidth / 1280, innerHeight / 720);
+    document.getElementById("stage").style.setProperty("--scale", scale);
+  }
+  addEventListener("resize", fit);
+  fit();
+
+  /* ── 進行表示 ── */
+  slides.forEach(() => ticks.appendChild(document.createElement("i")));
+  const tickEls = [...ticks.children];
+
+  function show(next) {
+    index = Math.max(0, Math.min(slides.length - 1, next));
+    slides.forEach((s, i) => s.classList.toggle("on", i === index));
+    tickEls.forEach((t, i) => {
+      t.classList.toggle("done", i < index);
+      t.classList.toggle("now", i === index);
+    });
+    pos.textContent = `${index + 1} / ${slides.length}`;
+    document.getElementById("notes-body").textContent =
+      slides[index].dataset.note || "（メモなし）";
+    // replaceState で履歴を汚さない。発表中に戻るボタンで飛ばないように。
+    history.replaceState(null, "", "#" + (index + 1));
+  }
+
+  /* ── 8分の持ち時間。超えたら朱に変わる ── */
+  const LIMIT = 8 * 60;
+  let started = null, timer = null;
+
+  function paintClock() {
+    if (started === null) { clock.textContent = "08:00"; clock.className = ""; return; }
+    const spent = Math.floor((Date.now() - started) / 1000);
+    const left = LIMIT - spent;
+    const sign = left < 0 ? "+" : "";
+    const abs = Math.abs(left);
+    const mm = String(Math.floor(abs / 60)).padStart(2, "0");
+    const ss = String(abs % 60).padStart(2, "0");
+    clock.textContent = `${sign}${mm}:${ss}`;
+    clock.className = left < 0 ? "over" : "run";
+  }
+  function toggleTimer() {
+    if (timer) { clearInterval(timer); timer = null; started = null; paintClock(); }
+    else { started = Date.now(); paintClock(); timer = setInterval(paintClock, 250); }
+  }
+
+  /* ── 一覧 ── */
+  slides.forEach((s, i) => {
+    const head = s.querySelector("h1, h2");
+    const b = document.createElement("button");
+    b.innerHTML = `<span class="n mono">${String(i + 1).padStart(2, "0")}</span>
+                   <span class="t">${(head ? head.textContent : "").slice(0, 44)}</span>`;
+    b.addEventListener("click", () => { grid.classList.remove("on"); show(i); });
+    grid.appendChild(b);
+  });
+
+  /* ── 操作 ── */
+  addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); show(index + 1); }
+    else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); show(index - 1); }
+    else if (e.key === "Home") show(0);
+    else if (e.key === "End") show(slides.length - 1);
+    else if (k === "n") notes.classList.toggle("on");
+    else if (k === "t") toggleTimer();
+    else if (k === "o") grid.classList.toggle("on");
+    else if (k === "f") { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); }
+    else if (e.key === "Escape") grid.classList.remove("on");
+  });
+
+  // クリックで次へ。一覧やメモの操作は邪魔しない。
+  document.getElementById("fit").addEventListener("click", (e) => {
+    if (e.target.closest("#notes")) return;
+    show(index + 1);
+  });
+
+  // しばらく触らなければ操作案内を消す
+  let hide = setTimeout(() => help.classList.add("hide"), 4000);
+  addEventListener("mousemove", () => {
+    help.classList.remove("hide");
+    clearTimeout(hide);
+    hide = setTimeout(() => help.classList.add("hide"), 4000);
+  });
+
+  show(Math.max(0, (parseInt(location.hash.slice(1), 10) || 1) - 1));
+</script>
