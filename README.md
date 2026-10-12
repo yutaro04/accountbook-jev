@@ -87,6 +87,9 @@ JEV_MOCK=1 node server.mjs   # キーがあっても強制的にモック
 | `server.mjs` | HTTP。API キーを守るプロキシ。結果を NDJSON で流す |
 | `index.html` | 画面。ステージ投影を想定して文字を大きめにしている |
 | `TALK.md` | LT の構成案（8分） |
+| `slides.html` | LT スライド23枚。単体で開ける。`N` メモ / `T` タイマー / `O` 一覧 |
+| `tools/build-pptx.py` | `slides.html` → PowerPoint |
+| `bench/` | Apple オンデバイス LLM との実測比較 |
 
 ## 使っている Jev の機能
 
@@ -211,6 +214,29 @@ docs 推奨の形。しきい値は「間違えたときの損」で決める。
 ここで落とすのは「**そもそも金額の形をしていない**」行だけ
 （住所・日付・時刻・`123-456-789-0123` のようなハイフン区切りの番号・マスクされた番号）。
 品物かどうかの判断はしない。それは上に書いたとおり Choice の仕事。
+
+## スライド
+
+`slides.html` をブラウザで開けばそのまま発表できる。
+
+| キー | 動作 |
+| --- | --- |
+| `←` `→` `Space` | ページ送り |
+| `N` | 発表メモ |
+| `T` | 8分の残り時間（超過すると朱に変わる） |
+| `O` | 一覧 |
+| `F` | 全画面 |
+
+PowerPoint が要るときは:
+
+```sh
+pip3 install python-pptx
+python3 tools/build-pptx.py     # → jev-lt-slides.pptx
+```
+
+各ページを画像として貼るので**見た目はそのまま**だが、
+PowerPoint 上で文字は編集できない。直すときは `slides.html` を直して作り直す。
+発表メモは PowerPoint のノートに入るので、発表者ツールで読める。
 
 ## Jev についての注意
 
